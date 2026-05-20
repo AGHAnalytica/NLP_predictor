@@ -39,6 +39,11 @@ dependencies = [
     "pydantic>=2.6.0",
     "structlog>=24.1.0",
     "anyio>=4.3.0",
+    "pandas>=3.0.3",
+    "trafilatura>=2.0.0",
+    "dateparser>=1.4.0",
+    "pytz>=2026.2",
+    "pyarrow>=24.0.0",
 ]
 
 [project.optional-dependencies]
