@@ -1,12 +1,22 @@
+# Core imports
 import os
-import json
 import uuid
 from datetime import datetime, timezone
 import pandas as pd
 from pydantic import BaseModel, Field
+import time
+
+# Handle API and LLM
+from dotenv import load_dotenv
+from google.genai.errors import ClientError
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 # Load environment variables from the .env file located in the project root
 load_dotenv()
@@ -49,6 +59,37 @@ class UpperPathAnalyzer:
         self.available_instruments = self.instruments_df.to_dict("records")
         self.valid_tickers = set(self.instruments_df["ticker"].dropna().tolist())
 
+        # Create clean dictionary for the LLM (Ticker: Full Name)
+        self.available_instruments = dict(
+            zip(self.instruments_df["ticker"], self.instruments_df["full_name"])
+        )
+
+    @retry(
+        stop=stop_after_attempt(20),  # Allow more retries for small quota
+        wait=wait_exponential(multiplier=2, min=15, max=120),
+        retry=retry_if_exception_type(ClientError),
+        before_sleep=lambda retry_state: print(
+            f"[WAIT] Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})")
+    )
+    def _call_gemini_api_with_retry(
+            self, prompt: str, schema: type[BaseModel], temperature: float
+    ) -> BaseModel:
+        """
+        Calls the Gemini API and returns a validated Pydantic object directly.
+        Uses exponential backoff to handle rate limits.
+        """
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=temperature,
+            ),
+        )
+        # Directly return the parsed Pydantic object
+        return response.parsed
+
     def process_upper_path(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main pipeline for the upper path.
@@ -58,12 +99,12 @@ class UpperPathAnalyzer:
             return pd.DataFrame()
 
         # Map topics to multiple instruments
+        print("[INFO] Starting topic to instrument mapping...")
         topics_df["instruments"] = topics_df.apply(
             self._map_topic_to_instrument, axis=1
         )
 
         # Explode the list column into separate rows
-        # E.g., row with ['AAPL', 'GOOGL'] becomes two identical rows, one for each ticker
         exploded_df = topics_df.explode("instruments")
 
         # Filter out topics that don't map to any specific instrument
@@ -71,26 +112,28 @@ class UpperPathAnalyzer:
             columns={"instruments": "instrument"}
         )
 
+        if mapped_df.empty:
+            print(
+                "[WARNING] All topics were dropped after mapping. The result will be empty."
+            )
+            return pd.DataFrame()
+
         results = []
 
         # Group by instrument
+        print("[INFO] Generating trends per instrument...")
         for instrument, group in mapped_df.groupby("instrument"):
-            # Calculate severity per instrument
             severity = self._calculate_instrument_severity(group)
-
-            # Generate instrument trend
             trend_data = self._generate_instrument_trend(instrument, group, severity)
             results.append(trend_data)
 
         return pd.DataFrame(results)
 
     def _map_topic_to_instrument(self, row: pd.Series) -> list[str]:
-        """
-        Uses LLM to map a single topic to MULTIPLE available instrument tickers.
-        """
         prompt = f"""
         You are a quantitative financial analyst. Map the following news topic to ALL applicable instruments from the list.
         If the topic does not directly impact any of these specific instruments, return an empty list.
+        IMPORTANT: Return ONLY the exact 'ticker' symbols from the provided list, never full company names.
 
         Available Instruments: {self.available_instruments}
 
@@ -99,28 +142,30 @@ class UpperPathAnalyzer:
         """
 
         try:
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=InstrumentMapping,
-                    temperature=0.0,  # Low temperature for deterministic mapping
-                ),
+            # Artificially delay to prevent aggressive hitting of the 5 RPM limit
+            print(f"[INFO] Processing topic: {row['topic_name'][:30]}...")
+            time.sleep(5)
+
+            # The returned object is a validated InstrumentMapping Pydantic instance
+            parsed_result = self._call_gemini_api_with_retry(
+                prompt, InstrumentMapping, 0.0
             )
 
-            result = json.loads(response.text)
-            tickers = result.get("tickers", [])
+            tickers = parsed_result.tickers
+            tickers = [str(t).strip() for t in tickers]
 
-            # Validate against known tickers to prevent hallucinations and filter out invalid ones
+            # Validate against known tickers to filter out hallucinations
             valid_extracted_tickers = [
                 ticker for ticker in tickers if ticker in self.valid_tickers
             ]
 
+            if not valid_extracted_tickers and tickers:
+                print(f"[DEBUG] Validated out hallucinatory tickers for '{row['topic_name']}': {tickers}")
+
             return valid_extracted_tickers
 
         except Exception as e:
-            # Fallback in case of API failure or rate limit
+            print(f"[ERROR] Mapping failed for '{row['topic_name']}': {e}")
             return []
 
     def _calculate_instrument_severity(self, group: pd.DataFrame) -> float:
@@ -131,11 +176,8 @@ class UpperPathAnalyzer:
         return float(len(group))
 
     def _generate_instrument_trend(
-        self, instrument: str, group: pd.DataFrame, severity: float
+            self, instrument: str, group: pd.DataFrame, severity: float
     ) -> dict:
-        """
-        Generates the final trend summary and establishes direction using LLM.
-        """
         topics_context = group[["topic_name", "topic_description"]].to_dict("records")
         topic_ids = group["topic_id"].tolist()
 
@@ -149,20 +191,17 @@ class UpperPathAnalyzer:
         """
 
         try:
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=InstrumentTrend,
-                    temperature=0.2,  # Slight temperature allowance for text generation
-                ),
+            time.sleep(5)
+            # The returned object is a validated InstrumentTrend Pydantic instance
+            parsed_result = self._call_gemini_api_with_retry(
+                prompt, InstrumentTrend, 0.2
             )
 
-            result = json.loads(response.text)
+            # Convert Pydantic model to a standard dictionary
+            result = parsed_result.model_dump()
 
         except Exception as e:
-            # Fallback structure if LLM fails
+            print(f"[ERROR] Trend generation failed for '{instrument}': {e}")
             result = {
                 "title": "Data aggregation error",
                 "description": "Failed to generate summary.",
