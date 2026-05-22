@@ -2,7 +2,6 @@ import os
 import json
 from openai import OpenAI
 
-# Lekki loader .env (bez zewnętrznych zależności). Odczytuje proste linie KEY=VALUE.
 def _load_env_file(path: str = ".env") -> None:
   if not os.path.exists(path):
     return
@@ -19,11 +18,8 @@ def _load_env_file(path: str = ".env") -> None:
         val = val.strip().strip('"').strip("'")
         os.environ.setdefault(key, val)
   except Exception:
-    # Ignoruj błędy podczas czytania .env; polegaj na zmiennych środowiskowych
     pass
 
-
-# Spróbuj wczytać .env, jeśli istnieje (opcjonalne)
 _load_env_file()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
