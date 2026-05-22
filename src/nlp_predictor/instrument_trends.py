@@ -19,7 +19,8 @@ from tenacity import (
 load_dotenv()
 
 # Default instrument path
-INSTRUMENT_PATH = "../../data/instrument_trends/instruments_sample.csv"
+INSTRUMENT_PATH = "../../data/instruments/instruments_sample.csv"
+SAVE_PATH = "../../data/test_results/instrument_trends_report.csv"
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
@@ -137,9 +138,7 @@ class UpperPathAnalyzer:
         try:
             print(f"[INFO] Processing topic: {row['topic_name'][:30]}...")
 
-            parsed_result = self._call_openai_api_with_retry(
-                prompt, InstrumentMapping
-            )
+            parsed_result = self._call_openai_api_with_retry(prompt, InstrumentMapping)
 
             tickers = parsed_result.tickers
             tickers = [str(t).strip() for t in tickers]
@@ -166,7 +165,9 @@ class UpperPathAnalyzer:
     def _generate_instrument_trend(
         self, instrument: str, group: pd.DataFrame, severity: float
     ) -> dict:
-        topics_context = group[["topic_name", "topic_description"]].to_dict(orient="records")  # type: ignore[call-overload]
+        topics_context = group[["topic_name", "topic_description"]].to_dict(
+            orient="records"
+        )  # type: ignore[call-overload]
         topic_ids = group["topic_id"].tolist()
 
         # Derive time range from the articles' posted timestamps (ISO strings sort correctly)
@@ -183,9 +184,7 @@ class UpperPathAnalyzer:
         """
 
         try:
-            parsed_result = self._call_openai_api_with_retry(
-                prompt, InstrumentTrend
-            )
+            parsed_result = self._call_openai_api_with_retry(prompt, InstrumentTrend)
             result = parsed_result.model_dump()
 
         except Exception as e:
@@ -211,8 +210,8 @@ class UpperPathAnalyzer:
 
 
 if __name__ == "__main__":
-    INSTRUMENT_PATH = "../../data/instrument_trends/instruments_sample.csv"
-    TOPICS_PATH = "../../data/instrument_trends/topics_sample.csv"
+    INSTRUMENT_PATH = "../../data/instruments/instruments_sample.csv"
+    TOPICS_PATH = "../../data/topics/topics_sample.csv"
     print("====== UpperPathAnalyzer Module Test ======")
 
     upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
@@ -222,7 +221,7 @@ if __name__ == "__main__":
     print("====== Processing Upper Path Completed ======")
 
     print("====== Saving Results To File ======")
-    result.to_csv("../../data/instrument_trends/result.csv")
+    result.to_csv(SAVE_PATH, index=False)
     print("====== Saving Completed ======")
 
     result.head()
