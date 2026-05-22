@@ -4,13 +4,10 @@ import uuid
 from datetime import datetime, timezone
 import pandas as pd
 from pydantic import BaseModel, Field
-import time
 
 # Handle API and LLM
 from dotenv import load_dotenv
-from google.genai.errors import ClientError
-from google import genai
-from google.genai import types
+from openai import OpenAI, RateLimitError
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -47,16 +44,15 @@ class UpperPathAnalyzer:
     """
 
     def __init__(self, instruments_path: str = INSTRUMENT_PATH):
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError(
-                "Critical Security Error: GEMINI_API_KEY is not set in the environment."
+                "Critical Security Error: OPENAI_API_KEY is not set in the environment."
             )
-        self.client = genai.Client(api_key=api_key)
+        self.client = OpenAI(api_key=api_key)
 
         # Load available instruments and create a context string for the LLM
         self.instruments_df = pd.read_csv(instruments_path)
-        self.available_instruments = self.instruments_df.to_dict("records")
         self.valid_tickers = set(self.instruments_df["ticker"].dropna().tolist())
 
         # Create clean dictionary for the LLM (Ticker: Full Name)
@@ -65,35 +61,32 @@ class UpperPathAnalyzer:
         )
 
     @retry(
-        stop=stop_after_attempt(20),  # Allow more retries for small quota
-        wait=wait_exponential(multiplier=2, min=15, max=120),
-        retry=retry_if_exception_type(ClientError),
+        stop=stop_after_attempt(10),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        retry=retry_if_exception_type(RateLimitError),
         before_sleep=lambda retry_state: print(
-            f"[WAIT] Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})")
+            f"[WAIT] Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})"
+        ),
     )
-    def _call_gemini_api_with_retry(
-            self, prompt: str, schema: type[BaseModel], temperature: float
+    def _call_openai_api_with_retry(
+        self, prompt: str, schema: type[BaseModel]
     ) -> BaseModel:
         """
-        Calls the Gemini API and returns a validated Pydantic object directly.
+        Calls the OpenAI API with structured output and returns a validated Pydantic object.
         Uses exponential backoff to handle rate limits.
         """
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-                temperature=temperature,
-            ),
+        response = self.client.beta.chat.completions.parse(
+            model="gpt-5-nano",
+            messages=[{"role": "user", "content": prompt}],
+            response_format=schema,
         )
-        # Directly return the parsed Pydantic object
-        return response.parsed
+        return response.choices[0].message.parsed  # type: ignore
 
     def process_upper_path(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main pipeline for the upper path.
         Expects a DataFrame with 'topic_id', 'doc_hash', 'topic_name', 'topic_description', 'date'.
+        The 'date' column must contain the article post timestamp.
         """
         if topics_df.empty:
             return pd.DataFrame()
@@ -142,13 +135,10 @@ class UpperPathAnalyzer:
         """
 
         try:
-            # Artificially delay to prevent aggressive hitting of the 5 RPM limit
             print(f"[INFO] Processing topic: {row['topic_name'][:30]}...")
-            time.sleep(5)
 
-            # The returned object is a validated InstrumentMapping Pydantic instance
-            parsed_result = self._call_gemini_api_with_retry(
-                prompt, InstrumentMapping, 0.0
+            parsed_result = self._call_openai_api_with_retry(
+                prompt, InstrumentMapping
             )
 
             tickers = parsed_result.tickers
@@ -160,7 +150,9 @@ class UpperPathAnalyzer:
             ]
 
             if not valid_extracted_tickers and tickers:
-                print(f"[DEBUG] Validated out hallucinatory tickers for '{row['topic_name']}': {tickers}")
+                print(
+                    f"[DEBUG] Validated out hallucinatory tickers for '{row['topic_name']}': {tickers}"
+                )
 
             return valid_extracted_tickers
 
@@ -169,17 +161,17 @@ class UpperPathAnalyzer:
             return []
 
     def _calculate_instrument_severity(self, group: pd.DataFrame) -> float:
-        """
-        Calculates severity based on the number of grouped topics.
-        """
-        # Baseline severity: number of related topics
         return float(len(group))
 
     def _generate_instrument_trend(
-            self, instrument: str, group: pd.DataFrame, severity: float
+        self, instrument: str, group: pd.DataFrame, severity: float
     ) -> dict:
-        topics_context = group[["topic_name", "topic_description"]].to_dict("records")
+        topics_context = group[["topic_name", "topic_description"]].to_dict(orient="records")  # type: ignore[call-overload]
         topic_ids = group["topic_id"].tolist()
+
+        # Derive time range from the articles' posted timestamps (ISO strings sort correctly)
+        first_article_time = str(group["date"].min())[:19]
+        newest_article_time = str(group["date"].max())[:19]
 
         prompt = f"""
         You are a senior financial analyst. Analyze the following news topics related to the instrument '{instrument}'.
@@ -191,13 +183,9 @@ class UpperPathAnalyzer:
         """
 
         try:
-            time.sleep(5)
-            # The returned object is a validated InstrumentTrend Pydantic instance
-            parsed_result = self._call_gemini_api_with_retry(
-                prompt, InstrumentTrend, 0.2
+            parsed_result = self._call_openai_api_with_retry(
+                prompt, InstrumentTrend
             )
-
-            # Convert Pydantic model to a standard dictionary
             result = parsed_result.model_dump()
 
         except Exception as e:
@@ -210,7 +198,9 @@ class UpperPathAnalyzer:
 
         return {
             "trend_id": str(uuid.uuid4()),
-            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
+            "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            "first_article_time": first_article_time,
+            "newest_article_time": newest_article_time,
             "instrument": instrument,
             "title": result.get("title", "Unknown"),
             "description": result.get("description", "Unknown"),
