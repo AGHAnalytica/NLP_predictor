@@ -208,10 +208,27 @@ class UpperPathAnalyzer:
             "topic_ids": topic_ids,
         }
 
+    @staticmethod
+    def save_trends(result_df: pd.DataFrame, output_path: str):
+        """
+        Appends new trends to the historical CSV file.
+        """
+        file_exists = os.path.isfile(output_path)
+
+        # Mode 'a' for append, 'w' for write (create if not exists)
+        result_df.to_csv(
+            output_path,
+            mode='a',
+            index=False,
+            header=not file_exists  # Write header only if file is new
+        )
+        print(f"[INFO] Results appended to {output_path}")
 
 if __name__ == "__main__":
     INSTRUMENT_PATH = "../../data/instruments/instruments_sample.csv"
     TOPICS_PATH = "../../data/topics/topics_sample.csv"
+    SAVE_PATH = "../../data/test_results/instrument_trends_report.csv"
+
     print("====== UpperPathAnalyzer Module Test ======")
 
     upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
@@ -221,7 +238,7 @@ if __name__ == "__main__":
     print("====== Processing Upper Path Completed ======")
 
     print("====== Saving Results To File ======")
-    result.to_csv(SAVE_PATH, index=False)
+    UpperPathAnalyzer.save_trends(result, SAVE_PATH)
     print("====== Saving Completed ======")
 
     result.head()
