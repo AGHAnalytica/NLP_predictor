@@ -19,7 +19,7 @@ from tenacity import (
 load_dotenv()
 
 # Default instrument path
-INSTRUMENT_PATH = "../../data/instrument_trends/instruments.csv"
+INSTRUMENT_PATH = "../../data/instrument_trends/instruments_sample.csv"
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
@@ -211,7 +211,7 @@ class UpperPathAnalyzer:
 
 
 if __name__ == "__main__":
-    INSTRUMENT_PATH = "../../data/instrument_trends/instruments.csv"
+    INSTRUMENT_PATH = "../../data/instrument_trends/instruments_sample.csv"
     TOPICS_PATH = "../../data/instrument_trends/topics_sample.csv"
     print("====== UpperPathAnalyzer Module Test ======")
 

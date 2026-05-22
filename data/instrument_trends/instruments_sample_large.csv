@@ -1,0 +1,100 @@
+id,ticker,full_name,description
+BBG000B9XRY1,OIL,Crude Oil,Global benchmark for crude oil prices
+BBG000C6K6G9,GOOGL,Alphabet Inc.,Multinational technology conglomerate
+BBG000B9XRY4,AAPL,Apple Inc.,Multinational technology company
+BBG000BTC123,BTC,Bitcoin,Decentralized digital currency
+BBG000EURUS1,EURUSD,EUR/USD,Euro to US Dollar exchange rate
+BBG000BDTG10,SPY,SPDR S&P 500 ETF Trust,Exchange-traded fund tracking the S&P 500
+BBG000FR1RP5,ADS,adidas AG,Multinational sportswear corporation
+BBG000BBVVK7,BAS,BASF SE,Multinational chemical company
+BBG000HJTMS9,DTE,Deutsche Telekom AG,Telecommunications company
+BBG000BG7GX2,SAP,SAP SE,Enterprise software company
+BBG000BCCT76,SIE,Siemens AG,Multinational conglomerate
+BBG000BPH459,MSFT,Microsoft Corporation,Multinational technology company
+BBG000BVSLS7,AMZN,"Amazon.com, Inc.",E-commerce and cloud computing company
+BBG000N9MNX3,TSLA,"Tesla, Inc.",Electric vehicle and clean energy company
+BBG000BBJQV0,NVDA,NVIDIA Corporation,Semiconductor and AI technology company
+BBG000MM2P62,META,"Meta Platforms, Inc.",Social media and technology company
+BBG000GOLD12,XAUUSD,Gold / US Dollar,Gold spot price in US Dollars
+BBG000SILV34,XAGUSD,Silver / US Dollar,Silver spot price in US Dollars
+BBG000ETH567,ETH,Ethereum,Decentralized open-source blockchain system
+BBG000UST10Y,US10Y,US 10-Year Treasury Note,United States government debt instrument
+BBG000SPX500,SPX,S&P 500 Index,US stock market index
+BBG000NIK225,NKY,Nikkei 225,Japanese stock market index
+BBG000GBPUS1,GBPUSD,GBP/USD,British Pound to US Dollar exchange rate
+BBG000USDJP1,USDJPY,USD/JPY,US Dollar to Japanese Yen exchange rate
+BBG000TYT123,TM,Toyota Motor Corporation,Multinational automotive manufacturer
+BBG000SAM456,SMSN,Samsung Electronics,Multinational electronics company
+BBG000BABA78,BABA,Alibaba Group,Multinational e-commerce and technology company
+BBG000UKG10Y,UK10Y,UK 10-Year Gilt,United Kingdom government debt instrument
+BBG000BRENT1,BRENT,Brent Crude,Global benchmark for crude oil prices
+BBG000VIX123,VIX,CBOE Volatility Index,Market expectation of near-term volatility
+BBG000COPPER,HG,Copper,Copper futures contract
+BBG000CORN12,ZC,Corn,Corn futures contract
+BBG000SOYB34,ZS,Soybean,Soybean futures contract
+BBG000WHEAT5,ZW,Wheat,Wheat futures contract
+BBG000JPM123,JPM,JPMorgan Chase & Co.,Multinational investment bank
+BBG000BAC456,BAC,Bank of America Corp,Multinational investment bank
+BBG000WMT789,WMT,Walmart Inc.,Multinational retail corporation
+BBG000PG1234,PG,Procter & Gamble Co.,Multinational consumer goods corporation
+BBG000KO5678,KO,The Coca-Cola Company,Multinational beverage corporation
+BBG000PEP901,PEP,"PepsiCo, Inc.",Multinational food and beverage corporation
+BBG000MCD234,MCD,McDonald's Corporation,Multinational fast food chain
+BBG000SBUX56,SBUX,Starbucks Corporation,Multinational chain of coffeehouses
+BBG000NKE789,NKE,"NIKE, Inc.",Multinational athletic footwear and apparel corporation
+BBG000DIS123,DIS,The Walt Disney Company,Multinational mass media and entertainment conglomerate
+BBG000NFLX45,NFLX,"Netflix, Inc.",Subscription streaming service and production company
+BBG000INTC67,INTC,Intel Corporation,Multinational technology company
+BBG000CSCO89,CSCO,"Cisco Systems, Inc.",Multinational technology conglomerate
+BBG000IBM123,IBM,International Business Machines Corporation,Multinational technology company
+BBG000ORCL45,ORCL,Oracle Corporation,Multinational computer technology corporation
+BBG000V7Q8N1,VZ,Verizon Communications Inc.,Telecommunications company
+BBG000T7F8X2,T,AT&T Inc.,Telecommunications company
+BBG000C1N8X3,CMCSA,Comcast Corporation,Telecommunications conglomerate
+BBG000P7N8X4,PFE,Pfizer Inc.,Pharmaceutical corporation
+BBG000J7N8X5,JNJ,Johnson & Johnson,Medical devices and pharmaceutical company
+BBG000M7N8X6,MRK,Merck & Co. Inc.,Pharmaceutical company
+BBG000U7N8X7,UNH,UnitedHealth Group Incorporated,Managed healthcare and insurance company
+BBG000H7N8X8,HD,The Home Depot Inc.,Home improvement retailer
+BBG000L7N8X9,LOW,Lowe's Companies Inc.,Home improvement retailer
+BBG000C7N8Y0,COST,Costco Wholesale Corporation,Multinational retail corporation
+BBG000T7N8Y1,TGT,Target Corporation,Retail corporation
+BBG000V7N8Y2,V,Visa Inc.,Multinational financial services corporation
+BBG000M7N8Y3,MA,Mastercard Incorporated,Multinational financial services corporation
+BBG000A7N8Y4,AXP,American Express Company,Multinational financial services corporation
+BBG000G7N8Y5,GS,The Goldman Sachs Group Inc.,Multinational investment bank
+BBG000M7N8Y6,MS,Morgan Stanley,Multinational investment bank
+BBG000B7N8Y7,BA,The Boeing Company,Aerospace corporation
+BBG000L7N8Y8,LMT,Lockheed Martin Corporation,Aerospace and defense company
+BBG000C7N8Y9,CAT,Caterpillar Inc.,Construction machinery and equipment company
+BBG000D7N8Z0,DE,Deere & Company,Agricultural machinery company
+BBG000XOM123,XOM,Exxon Mobil Corporation,Multinational oil and gas corporation
+BBG000CVX456,CVX,Chevron Corporation,Multinational energy corporation
+BBG000ABT789,ABT,Abbott Laboratories,Multinational medical devices and health care company
+BBG000MDT123,MDT,Medtronic plc,Medical device company
+BBG000BMY456,BMY,Bristol-Myers Squibb Company,Pharmaceutical company
+BBG000AMGN78,AMGN,Amgen Inc.,Biopharmaceutical company
+BBG000GILD12,GILD,Gilead Sciences Inc.,Biopharmaceutical company
+BBG000TXN345,TXN,Texas Instruments Incorporated,Semiconductor company
+BBG000QCOM67,QCOM,Qualcomm Incorporated,Semiconductor and telecommunications equipment company
+BBG000AVGO89,AVGO,Broadcom Inc.,Semiconductor and infrastructure software products
+BBG000ADBE12,ADBE,Adobe Inc.,Multinational computer software company
+BBG000CRM345,CRM,Salesforce.com Inc.,Cloud-based software company
+BBG000INTU67,INTU,Intuit Inc.,Financial software company
+BBG000PYPL89,PYPL,PayPal Holdings Inc.,Financial technology company
+BBG000SQ1234,SQ,Block Inc.,Financial services and digital payments company
+BBG000UBER56,UBER,Uber Technologies Inc.,Mobility as a service provider
+BBG000LYFT78,LYFT,Lyft Inc.,Ride-sharing company
+BBG000ABNB90,ABNB,Airbnb Inc.,Online marketplace for lodging
+BBG000BKNG12,BKNG,Booking Holdings Inc.,Travel technology company
+BBG000EXPE34,EXPE,Expedia Group Inc.,Online travel shopping company
+BBG000VOD123,VOD,Vodafone Group Plc,Telecommunications company
+BBG000BP4567,BP,BP p.l.c.,Multinational oil and gas company
+BBG000SHEL89,SHEL,Shell plc,Multinational oil and gas company
+BBG000ULVR12,ULVR,Unilever PLC,Multinational consumer goods company
+BBG000HSBA34,HSBA,HSBC Holdings plc,Multinational universal bank
+BBG000RIO567,RIO,Rio Tinto Group,Multinational metals and mining corporation
+BBG000BHP890,BHP,BHP Group Limited,"Multinational mining, metals and petroleum dual-listed public company"
+BBG000CBA123,CBA,Commonwealth Bank of Australia,Multinational bank
+BBG000RY4567,RY,Royal Bank of Canada,Multinational financial services company
+BBG000TD8901,TD,Toronto-Dominion Bank,Multinational banking and financial services corporation
