@@ -44,6 +44,8 @@ dependencies = [
     "dateparser>=1.4.0",
     "pytz>=2026.2",
     "pyarrow>=24.0.0",
+    "openai>=2.38.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.optional-dependencies]
