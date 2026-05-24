@@ -1,32 +1,36 @@
 # Core imports
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
+
 import pandas as pd
-from pydantic import BaseModel, Field
 
 # Handle API and LLM
 from dotenv import load_dotenv
 from openai import OpenAI, RateLimitError
+from pydantic import BaseModel, Field
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 # Load environment variables from the .env file located in the project root
 load_dotenv()
 
-# Default instrument path
-INSTRUMENT_PATH = "../../data/instruments/instruments_sample.csv"
-SAVE_PATH = "../../data/test_results/instrument_trends_report.csv"
+# Default instrument path (resolved relative to this file)
+BASE_DIR = Path(__file__).resolve().parents[2]
+INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
+SAVE_PATH = str(BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv")
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
 class InstrumentMapping(BaseModel):
     tickers: list[str] = Field(
-        description="List of ticker symbols of the financial instruments impacted. Return an empty list if none."
+        description="""List of ticker symbols of the financial instruments impacted.
+        Return an empty list if none."""
     )
 
 
@@ -58,7 +62,11 @@ class UpperPathAnalyzer:
 
         # Create clean dictionary for the LLM (Ticker: Full Name)
         self.available_instruments = dict(
-            zip(self.instruments_df["ticker"], self.instruments_df["full_name"])
+            zip(
+                self.instruments_df["ticker"],
+                self.instruments_df["full_name"],
+                strict=False,
+            )
         )
 
     @retry(
@@ -73,12 +81,14 @@ class UpperPathAnalyzer:
         self, prompt: str, schema: type[BaseModel]
     ) -> BaseModel:
         """
-        Calls the OpenAI API with structured output and returns a validated Pydantic object.
-        Uses exponential backoff to handle rate limits.
+        Calls the OpenAI API with structured output and returns a validated
+        Pydantic object. Uses exponential backoff to handle rate limits.
         """
         response = self.client.beta.chat.completions.parse(
             model="gpt-5-nano",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
             response_format=schema,
         )
         return response.choices[0].message.parsed  # type: ignore
@@ -86,7 +96,8 @@ class UpperPathAnalyzer:
     def process_upper_path(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main pipeline for the upper path.
-        Expects a DataFrame with 'topic_id', 'doc_hash', 'topic_name', 'topic_description', 'date'.
+        Expects a DataFrame with 'topic_id', 'doc_hash', 'topic_name',
+        'topic_description', 'date'.
         The 'date' column must contain the article post timestamp.
         """
         if topics_df.empty:
@@ -108,7 +119,8 @@ class UpperPathAnalyzer:
 
         if mapped_df.empty:
             print(
-                "[WARNING] All topics were dropped after mapping. The result will be empty."
+                "[WARNING] All topics were dropped after mapping. "
+                "The result will be empty."
             )
             return pd.DataFrame()
 
@@ -125,9 +137,10 @@ class UpperPathAnalyzer:
 
     def _map_topic_to_instrument(self, row: pd.Series) -> list[str]:
         prompt = f"""
-        You are a quantitative financial analyst. Map the following news topic to ALL applicable instruments from the list.
-        If the topic does not directly impact any of these specific instruments, return an empty list.
-        IMPORTANT: Return ONLY the exact 'ticker' symbols from the provided list, never full company names.
+        You are a quantitative financial analyst. Map the following news topic to ALL
+        applicable instruments from the list. If the topic does not directly impact any
+        of these specific instruments, return an empty list. IMPORTANT: Return ONLY the
+        exact 'ticker' symbols from the provided list, never full company names.
 
         Available Instruments: {self.available_instruments}
 
@@ -150,7 +163,8 @@ class UpperPathAnalyzer:
 
             if not valid_extracted_tickers and tickers:
                 print(
-                    f"[DEBUG] Validated out hallucinatory tickers for '{row['topic_name']}': {tickers}"
+                        "[DEBUG] Validated out hallucinatory tickers for '"
+                        f"{row['topic_name']}' : {tickers}"
                 )
 
             return valid_extracted_tickers
@@ -170,14 +184,16 @@ class UpperPathAnalyzer:
         )  # type: ignore[call-overload]
         topic_ids = group["topic_id"].tolist()
 
-        # Derive time range from the articles' posted timestamps (ISO strings sort correctly)
+        # Derive time range from the articles' posted timestamps
+        # (ISO strings sort correctly)
         first_article_time = str(group["date"].min())[:19]
         newest_article_time = str(group["date"].max())[:19]
 
         prompt = f"""
-        You are a senior financial analyst. Analyze the following news topics related to the instrument '{instrument}'.
-        Determine the overall price trend direction ('up', 'down', or 'neutral').
-        Provide a concise title and a 1-2 sentence description explaining the aggregate impact.
+        You are a senior financial analyst. Analyze the following news topics related to
+        the instrument '{instrument}'. Determine the overall price trend direction
+        ('up', 'down', or 'neutral'). Provide a concise title and a 1-2 sentence
+        description explaining the aggregate impact.
 
         Topics Context:
         {topics_context}
@@ -197,7 +213,7 @@ class UpperPathAnalyzer:
 
         return {
             "trend_id": str(uuid.uuid4()),
-            "current_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
             "first_article_time": first_article_time,
             "newest_article_time": newest_article_time,
             "instrument": instrument,
@@ -225,9 +241,10 @@ class UpperPathAnalyzer:
         print(f"[INFO] Results appended to {output_path}")
 
 if __name__ == "__main__":
-    INSTRUMENT_PATH = "../../data/instruments/instruments_sample.csv"
-    TOPICS_PATH = "../../data/topics/topics_sample.csv"
-    SAVE_PATH = "../../data/test_results/instrument_trends_report.csv"
+    BASE_DIR = Path(__file__).resolve().parents[2]
+    INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
+    TOPICS_PATH = str(BASE_DIR / "data" / "topics" / "topics_sample.csv")
+    SAVE_PATH = str(BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv")
 
     print("====== UpperPathAnalyzer Module Test ======")
 
