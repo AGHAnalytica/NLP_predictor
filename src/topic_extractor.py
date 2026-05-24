@@ -1,32 +1,18 @@
-import os
+from dotenv import load_dotenv
+from pathlib import Path
 import json
+import os
+
 from openai import OpenAI
 
-def _load_env_file(path: str = ".env") -> None:
-  if not os.path.exists(path):
-    return
-  try:
-    with open(path, encoding="utf-8") as f:
-      for line in f:
-        line = line.strip()
-        if not line or line.startswith("#"):
-          continue
-        if "=" not in line:
-          continue
-        key, val = line.split("=", 1)
-        key = key.strip()
-        val = val.strip().strip('"').strip("'")
-        os.environ.setdefault(key, val)
-  except Exception:
-    pass
 
-_load_env_file()
+def load_api_key(dotenv_path: Path | str | None = None) -> None:
+    load_dotenv(dotenv_path)
+    API_KEY = os.getenv("API_KEY")
+    if API_KEY is None:
+        raise ValueError("Missing API_KEY in .env file")
+    return API_KEY
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-  raise RuntimeError("OPENAI_API_KEY not set. Set the env var or create a .env file.")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = """
 Jesteś analitykiem finansowym. Z artykułu wyodrębnij listę tematów, które mogą wpłynąć na rynki finansowe.
@@ -51,23 +37,29 @@ def extract_topics_from_article(article_content: str) -> dict:
     Wywołuje model GPT-5 Nano, aby wyodrębnić tematy finansowe z treści podanego artykułu.
     """
     try:
-      response = client.chat.completions.create(
-        model="gpt-5-nano",
-        response_format={"type": "json_object"},
-        messages=[
-          {"role": "system", "content": SYSTEM_PROMPT},
-          {"role": "user", "content": f"Artykuł do analizy:\n\n{article_content}"}
-        ],
-      )
+        response = client.chat.completions.create(
+            model="gpt-5-nano",
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"Artykuł do analizy:\n\n{article_content}",
+                },
+            ],
+        )
     except Exception as e:
-      print("Błąd API OpenAI:", e)
-      raise
+        print("Błąd API OpenAI:", e)
+        raise
 
     raw_response = response.choices[0].message.content
     return json.loads(raw_response)
 
 
 if __name__ == "__main__":
+    OPENAI_API_KEY = load_api_key()
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
     # Test naszego promptu i połączenia z API
     dummy_article = (
         "Reuters: W poniedziałek rano brytyjski rząd ogłosił niespodziewane wydłużenie "
@@ -80,4 +72,4 @@ if __name__ == "__main__":
     result = extract_topics_from_article(dummy_article)
 
     print("\nOtrzymany wynik JSON:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(result, indent=4, ensure_ascii=False))
