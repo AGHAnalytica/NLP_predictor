@@ -219,3 +219,11 @@ __marimo__/
 
 # PyCharm
 .idea
+
+# VSCode
+.vscode
+
+# Parquet files
+*.parquet
+_common_metadata
+_metadata

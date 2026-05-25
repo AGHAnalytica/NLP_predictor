@@ -39,10 +39,10 @@ dependencies = [
     "pydantic>=2.6.0",
     "structlog>=24.1.0",
     "anyio>=4.3.0",
-    "google-genai>=2.4.0",
     "openai>=1.30.0",
     "pandas>=3.0.3",
     "python-dotenv>=1.0.0",
+    "fastparquet>=2026.5.0",
 ]
 
 [project.optional-dependencies]
