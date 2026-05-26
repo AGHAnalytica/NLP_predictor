@@ -1,22 +1,15 @@
 # Core imports
-import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import fastparquet  # noqa: F401
 import pandas as pd
+from base_analyzer import BaseAnalyzer  # type: ignore
 
 # Handle API and LLM
 from dotenv import load_dotenv
-from openai import OpenAI, RateLimitError
 from pydantic import BaseModel, Field
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 # Load environment variables from the .env file located in the project root
 load_dotenv()
@@ -47,7 +40,7 @@ class InstrumentTrend(BaseModel):
     direction: str = Field(description="One of: 'up', 'down', 'neutral'.")
 
 
-class UpperPathAnalyzer:
+class UpperPathAnalyzer(BaseAnalyzer):
     """
     This class encapsulates the logic for processing the upper path of the data
     pipeline. It includes methods for mapping news topics to financial instruments,
@@ -57,7 +50,7 @@ class UpperPathAnalyzer:
     It also includes detailed logging for monitoring the processing steps and handling a
     ny issues that arise.
 
-    The main method, `process_upper_path`, takes a DataFrame of topics, maps each
+    The main method, `process_data`, takes a DataFrame of topics, maps each
     topic to relevant instruments, and generates a trend summary for each instrument
     based on the associated topics. The final output is a DataFrame containing the
     trends for each instrument, ready to be saved as a partitioned Parquet dataset.
@@ -65,12 +58,7 @@ class UpperPathAnalyzer:
     """
 
     def __init__(self, instruments_path: str = INSTRUMENT_PATH):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Critical Security Error: OPENAI_API_KEY is not set in the environment."
-            )
-        self.client = OpenAI(api_key=api_key)
+        super().__init__()
 
         # 1. Load available instruments and create a context string for the LLM
         self.instruments_df = pd.read_csv(instruments_path)
@@ -85,40 +73,7 @@ class UpperPathAnalyzer:
             )
         )
 
-    @retry(
-        stop=stop_after_attempt(10),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
-        retry=retry_if_exception_type(RateLimitError),
-        before_sleep=lambda retry_state: print(
-            f"[WAIT] Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})"
-        ),
-    )
-    def _call_openai_api_with_retry(
-        self, prompt: str, schema: type[BaseModel]
-    ) -> BaseModel:
-        """
-        Calls the OpenAI API with structured output and returns a validated
-        Pydantic object. Uses exponential backoff to handle rate limits.
-
-        Args:
-            prompt (str): The prompt to send to the LLM.
-            schema (type[BaseModel]): The Pydantic model class to validate the output.
-
-        Returns:
-            BaseModel: An instance of the provided Pydantic model containing the parsed
-            response.
-
-        """
-        response = self.client.beta.chat.completions.parse(
-            model="gpt-5-nano",
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-            response_format=schema,
-        )
-        return response.choices[0].message.parsed  # type: ignore
-
-    def process_upper_path(self, topics_df: pd.DataFrame) -> pd.DataFrame:
+    def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main processing function for the upper path. It takes a DataFrame of topics,
         maps each topic to relevant financial instruments, and then generates a trend
@@ -310,74 +265,6 @@ class UpperPathAnalyzer:
             "topic_ids": topic_ids,
         }
 
-    @staticmethod
-    def save_trends(result_df: pd.DataFrame, output_path: str):
-        """
-        Saves the resulting DataFrame to a partitioned Parquet dataset.
-        - Partitions by date (extracted from 'current_time' or 'date' column).
-        - Uses fastparquet engine for efficient writing and native
-        Hive-style partitioning.
-        - Appends new data without overwriting existing partitions, creating new
-        parquet files with unique names.
-        - Handles empty DataFrames gracefully by skipping the save operation.
-        - Ensures the target directory exists before saving.
-        - Logs key steps and any issues encountered during the save process.
-        Note: The 'current_time' column is expected to be in a datetime format.
-        If it's not present, it falls back to using the 'date' column for partitioning.
-
-        Args:
-            result_df (pd.DataFrame): The DataFrame containing the trends to save.
-            output_path (str): The path to the directory where the Parquet files will be
-            saved.
-
-        Returns:
-            bool: The return value. True for success, False otherwise.
-
-        """
-        if result_df.empty:
-            print("[INFO] DataFrame is empty. Skipping Parquet save operation.")
-            return False
-
-        try:
-            # 1. Ensure the target base directory exists
-            os.makedirs(output_path, exist_ok=True)
-
-            # 2. Identify the time column
-            # ('current_time' based on latest implementation)
-            time_col = "current_time" if "current_time" in result_df.columns else "date"
-
-            # 3. Create a new column strictly for partitioning
-            # (extracting just the date) Converting to string
-            # ensures clean folder names in the OS
-            result_df["date_partition"] = pd.to_datetime(
-                result_df[time_col]
-            ).dt.date.astype(str)
-
-            # 4. Check SPECIFICALLY for the fastparquet metadata file
-            # to enable appending
-            metadata_path = os.path.join(output_path, "_metadata")
-            dataset_exists = os.path.isfile(metadata_path)
-
-            # 5. Write to Parquet using the fastparquet engine.
-            # fastparquet handles Hive partitioning natively.
-            # When called multiple times, it generates new, unique parquet files (UUIDs)
-            # inside the partition folders, effectively appending data without
-            # overwriting historical batches.
-            result_df.to_parquet(
-                output_path,
-                engine="fastparquet",
-                partition_cols=["date_partition"],
-                index=False,
-                append=dataset_exists,
-            )
-
-            mode_str = "Appended to" if dataset_exists else "Created new"
-            print(f"[INFO] {mode_str} partitioned Parquet dataset at {output_path}")
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to save results to Parquet: {e}")
-            return False
-
 
 if __name__ == "__main__":
     print("====== UpperPathAnalyzer Module Test ======")
@@ -386,7 +273,7 @@ if __name__ == "__main__":
         upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
         df_topics = pd.read_csv(TOPICS_PATH)
 
-        result = upper_path_analyzer.process_upper_path(df_topics)
+        result = upper_path_analyzer.process_data(df_topics)
         print("====== Processing Upper Path Completed ======")
 
         print("====== Saving Results To File ======")
