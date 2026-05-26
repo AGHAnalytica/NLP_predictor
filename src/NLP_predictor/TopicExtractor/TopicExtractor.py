@@ -1,26 +1,16 @@
 import json
-import os
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from dotenv import load_dotenv
 from openai import OpenAI
 
-from .prompts import SYSTEM_PROMPT
-
-
-def load_api_key(dotenv_path: Path | str | None = None) -> str:
-    load_dotenv(dotenv_path)
-    API_KEY = os.getenv("API_KEY")
-    if API_KEY is None:
-        raise ValueError("Missing API_KEY in .env file")
-    return API_KEY
+import NLP_predictor.utils.prompts as prompts
+from NLP_predictor.utils.config import load_api_key
 
 
 @dataclass(slots=True, eq=False)
 class TopicExtractor:
     OPENAI_API_KEY: str
-    prompts: dict[str, str] = {"SYSTEM_PROMPT": SYSTEM_PROMPT}
+    prompts: dict[str, str] = {"SYSTEM_PROMPT": prompts.SYSTEM_PROMPT}
     _client: OpenAI = field(init=False)
 
     def __post_init__(self):
@@ -35,7 +25,7 @@ class TopicExtractor:
                 model="gpt-5-nano",
                 response_format={"type": "json_object"},
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": prompts.SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": f"Artykuł do analizy:\n\n{article}",

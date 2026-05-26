@@ -1,1 +1,1 @@
-from .TopicExtractor import TopicExtractor, load_api_key
+from .TopicExtractor import TopicExtractor
