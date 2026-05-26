@@ -4,7 +4,9 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import math
 
 # Handle API and LLM
 from dotenv import load_dotenv
@@ -245,6 +247,7 @@ class UpperPathAnalyzer:
     DCIM_HALF_LIFE_HOURS = 4.0
     DCIM_BETA_PENALTY = 0.5
     DCIM_GAMMA_CONSENSUS = 0.3
+    DCIM_DELTA_VELOCITY = 0.3
     DCIM_KAPPA_SCALE = 2.0
     DCIM_RECENT_WINDOW_HOURS = 0.5
 
@@ -282,7 +285,75 @@ class UpperPathAnalyzer:
             `DCIM_BETA_PENALTY`) to calibrate the model's sensitivity. It also attempts to dynamically resolve the reference
             time via `self.current_time` to calculate the exact age of the articles.
         """
-        return float(len(group))
+        if group.empty:
+            return 0.0
+
+        required_cols = ['date', 'source_name', 'sentiment', 'source_weight']
+        if not all(col in group.columns for col in required_cols):
+            print(f"[WARNING] Missing DCIM required columns. Using simple article counter instead")
+            return float(len(group))
+
+        # PHASE 1 - influence of a single article
+        time_diffs = (self.current_time - group['date']).dt.total_seconds() / 3600.0
+        time_diffs = np.maximum(time_diffs, 0.0)
+
+        decay_constant = np.log(2) / self.DCIM_HALF_LIFE_HOURS
+        decay_factors = np.exp(-decay_constant * time_diffs)
+
+        raw_impacts = group['source_weight'] * group['sentiment'] * decay_factors
+
+        temp_df = group.copy()
+        temp_df['raw_impact'] = raw_impacts
+        temp_df = temp_df.sort_values(by='date', ascending=False)
+
+        print(f"[DEBUG] temp_df: {temp_df}")
+        # PHASE 2 - echo chamber penalty
+        source_impacts = []
+        for source, s_group in temp_df.groupby('source_name'):
+            n_s = len(s_group)
+            j_indices = np.arange(n_s)
+
+            penalties = 1.0 + self.DCIM_BETA_PENALTY * j_indices
+            abs_impacts = np.abs(s_group['raw_impact'].values)
+            penalized_sum = np.sum(abs_impacts / penalties)
+
+            mean_impact = s_group['raw_impact'].mean()
+            sign_s = np.sign(mean_impact) if mean_impact != 0 else 1.0
+            source_impacts.append(sign_s * penalized_sum)
+
+        source_impacts = np.array(source_impacts)
+        total_impact_sum = np.sum(source_impacts)
+        
+        if total_impact_sum == 0:
+            return 0.0
+
+        print(f"[DEBUG] total_impact_sum: {total_impact_sum}")
+        print(f"[DEBUG] source_impacts: {source_impacts}")
+        # PHASE 3 - different sources bonus (consensus)
+        U = len(source_impacts)
+        if U >= 2:
+            global_sign = np.sign(total_impact_sum)
+            U_agree = np.sum(np.sign(source_impacts) == global_sign)
+            C = 1.0 + self.DCIM_GAMMA_CONSENSUS * (U_agree / U)
+        else:
+            C = 1.0
+
+        print(f"[DEBUG] C: {C}")
+        # PHASE 4 - velocity
+        N_total = len(group)
+        N_recent = np.sum(time_diffs <= self.DCIM_RECENT_WINDOW_HOURS)
+        V = N_recent / (N_total + 1.0)
+
+        print(f"[DEBUG] N_total: {N_total}")
+        print(f"[DEBUG] N_recent: {N_recent}")
+        print(f"[DEBUG] V: {V}")
+
+        #PHASE 5 - final severity
+        inside_tanh = self.DCIM_KAPPA_SCALE * C * (1.0 + self.DCIM_DELTA_VELOCITY * V) * total_impact_sum
+        severity = math.tanh(inside_tanh)
+
+        print(f"[DEBUG] severity: {severity}")
+        return float(np.clip(severity, -1.0, 1.0))
 
     def _generate_instrument_trend(
         self, instrument: str, group: pd.DataFrame, severity: float
