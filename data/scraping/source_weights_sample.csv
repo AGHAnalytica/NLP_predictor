@@ -1,0 +1,9 @@
+source_name,source_weight
+Bloomberg,1.0
+Reuters,0.95
+Wall Street Journal,0.9
+Financial Times,0.9
+CNBC,0.8
+Yahoo Finance,0.6
+Seeking Alpha,0.4
+Motley Fool,0.3
