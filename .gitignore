@@ -227,3 +227,7 @@ __marimo__/
 *.parquet
 _common_metadata
 _metadata
+
+# Sphinx documentation
+docs/_build/
+docs/build/
