@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import fastparquet  # noqa: F401
 import pandas as pd
 
 # Handle API and LLM
@@ -23,7 +24,11 @@ load_dotenv()
 # Default instrument path (resolved relative to this file)
 BASE_DIR = Path(__file__).resolve().parents[2]
 INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
-SAVE_PATH = str(BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv")
+TOPICS_PATH = str(BASE_DIR / "data" / "topics" / "topics_sample.csv")
+SAVE_PATH_CSV = str(BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv")
+SAVE_PATH_PARQUET = str(
+    BASE_DIR / "data" / "test_results" / "instrument_trends_parquet"
+)
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
@@ -67,11 +72,11 @@ class UpperPathAnalyzer:
             )
         self.client = OpenAI(api_key=api_key)
 
-        # Load available instruments and create a context string for the LLM
+        # 1. Load available instruments and create a context string for the LLM
         self.instruments_df = pd.read_csv(instruments_path)
         self.valid_tickers = set(self.instruments_df["ticker"].dropna().tolist())
 
-        # Create clean dictionary for the LLM (Ticker: Full Name)
+        # 2. Create clean dictionary for the LLM (Ticker: Full Name)
         self.available_instruments = dict(
             zip(
                 self.instruments_df["ticker"],
@@ -135,16 +140,16 @@ class UpperPathAnalyzer:
         if topics_df.empty:
             return pd.DataFrame()
 
-        # Map topics to multiple instruments
+        # 1. Map topics to multiple instruments
         print("[INFO] Starting topic to instrument mapping...")
         topics_df["instruments"] = topics_df.apply(
             self._map_topic_to_instrument, axis=1
         )
 
-        # Explode the list column into separate rows
+        # 2. Explode the list column into separate rows
         exploded_df = topics_df.explode("instruments")
 
-        # Filter out topics that don't map to any specific instrument
+        # 3.Filter out topics that don't map to any specific instrument
         mapped_df = exploded_df.dropna(subset=["instruments"]).rename(
             columns={"instruments": "instrument"}
         )
@@ -158,7 +163,7 @@ class UpperPathAnalyzer:
 
         results = []
 
-        # Group by instrument
+        # 4. Group by instrument
         print("[INFO] Generating trends per instrument...")
         for instrument, group in mapped_df.groupby("instrument"):
             severity = self._calculate_instrument_severity(group)
@@ -334,23 +339,26 @@ class UpperPathAnalyzer:
             return False
 
         try:
-            # Ensure the target base directory exists
+            # 1. Ensure the target base directory exists
             os.makedirs(output_path, exist_ok=True)
 
-            # Identify the time column ('current_time' based on latest implementation)
+            # 2. Identify the time column
+            # ('current_time' based on latest implementation)
             time_col = "current_time" if "current_time" in result_df.columns else "date"
 
-            # Create a new column strictly for partitioning (extracting just the date)
-            # Converting to string ensures clean folder names in the OS
+            # 3. Create a new column strictly for partitioning
+            # (extracting just the date) Converting to string
+            # ensures clean folder names in the OS
             result_df["date_partition"] = pd.to_datetime(
                 result_df[time_col]
             ).dt.date.astype(str)
 
-            # Check SPECIFICALLY for the fastparquet metadata file to enable appending
+            # 4. Check SPECIFICALLY for the fastparquet metadata file
+            # to enable appending
             metadata_path = os.path.join(output_path, "_metadata")
             dataset_exists = os.path.isfile(metadata_path)
 
-            # Write to Parquet using the fastparquet engine.
+            # 5. Write to Parquet using the fastparquet engine.
             # fastparquet handles Hive partitioning natively.
             # When called multiple times, it generates new, unique parquet files (UUIDs)
             # inside the partition folders, effectively appending data without
@@ -372,30 +380,25 @@ class UpperPathAnalyzer:
 
 
 if __name__ == "__main__":
-    BASE_DIR = Path(__file__).resolve().parents[2]
-    INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
-    TOPICS_PATH = str(BASE_DIR / "data" / "topics" / "topics_sample.csv")
-    SAVE_PATH = str(BASE_DIR / "data" / "test_results" / "instrument_trends_parquet")
-
     print("====== UpperPathAnalyzer Module Test ======")
 
-    upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
-    df_topics = pd.read_csv(TOPICS_PATH)
+    try:
+        upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
+        df_topics = pd.read_csv(TOPICS_PATH)
 
-    result = upper_path_analyzer.process_upper_path(df_topics)
-    print("====== Processing Upper Path Completed ======")
+        result = upper_path_analyzer.process_upper_path(df_topics)
+        print("====== Processing Upper Path Completed ======")
 
-    print("====== Saving Results To File ======")
-    saving_result = UpperPathAnalyzer.save_trends(result, SAVE_PATH)
-    if saving_result:
-        print("====== Saving Completed ======")
-    else:
-        print("====== Saving Failed ======")
+        print("====== Saving Results To File ======")
+        saving_result = UpperPathAnalyzer.save_trends(result, SAVE_PATH_PARQUET)
+        if saving_result:
+            print("====== Saving Completed ======")
+        else:
+            print("====== Saving Failed ======")
 
-    # For debugging: save the result to a CSV as well
-    # (not required, but useful for quick checks)
-    debug_csv_path = str(
-        BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv"
-    )
-    result.to_csv(debug_csv_path, index=False)
-    print(f"[DEBUG] Also saved results to CSV for quick inspection at {debug_csv_path}")
+        # For debugging: save the result to a CSV as well
+        # (not required, but useful for quick checks)
+        result.to_csv(SAVE_PATH_CSV, index=False)
+        print(f"[DEBUG] Saved results to CSV at {SAVE_PATH_CSV}")
+    except Exception as e:
+        print(f"[FATAL ERROR] An error occurred during the UpperPathAnalyzer test: {e}")
