@@ -2,30 +2,21 @@
 import math
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 import fastparquet  # noqa: F401
 import numpy as np
 import pandas as pd
-from base_analyzer import BaseAnalyzer  # type: ignore
 
 # Handle API and LLM
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
+from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.prompts import PROMPTS  # type: ignore
+
 # Load environment variables from the .env file located in the project root
 load_dotenv()
-
-# Default instrument path (resolved relative to this file)
-BASE_DIR = Path(__file__).resolve().parents[2]
-INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
-TOPICS_PATH = str(BASE_DIR / "data" / "topics" / "topics_sample.csv")
-SAVE_PATH_CSV = str(BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv")
-SAVE_PATH_PARQUET = str(
-    BASE_DIR / "data" / "test_results" / "instrument_trends_parquet"
-)
-ARTICLES_PATH = str(BASE_DIR / "data" / "scraping" / "articles_sample.csv")
-WEIGHTS_PATH = str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv")
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
@@ -82,17 +73,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
     trends for each instrument, ready to be saved as a partitioned Parquet dataset.
     """
 
-    # =========================================================================
-    # DCIM HYPERPARAMETERS (Directional Confirmed Impact Model)
-    # =========================================================================
-    DCIM_HALF_LIFE_HOURS = 4.0
-    DCIM_BETA_PENALTY = 0.5
-    DCIM_GAMMA_CONSENSUS = 0.3
-    DCIM_DELTA_VELOCITY = 0.3
-    DCIM_KAPPA_SCALE = 2.0
-    DCIM_RECENT_WINDOW_HOURS = 0.5
-
-    def __init__(self, instruments_path: str = INSTRUMENT_PATH):
+    def __init__(self, instruments_path: str = Config["INSTRUMENT_PATH"]):
         super().__init__()
 
         # Load available instruments and create a context string for the LLM
@@ -183,20 +164,11 @@ class UpperPathAnalyzer(BaseAnalyzer):
                 - 'instrument': The valid ticker symbol.
                 - 'sentiment': The calculated sentiment score (-1.0 to 1.0).
         """
-        prompt = f"""
-        You are a quantitative financial analyst. Map the following news topic to ALL
-        applicable instruments from the list.
-
-        For each impacted instrument, calculate the 'sentiment' score
-        between -1.0 and 1.0,
-        representing how this specific news affects that specific company's stock price.
-        IMPORTANT: Return ONLY exact 'ticker' symbols from the provided list.
-
-        Available Instruments: {self.available_instruments}
-
-        Topic Name: {row["topic_name"]}
-        Topic Description: {row["topic_description"]}
-        """
+        prompt = PROMPTS["instrument_trends"].format(
+            available_instruments=self.available_instruments,
+            topic_name=row["topic_name"],
+            topic_description=row["topic_description"],
+        )
 
         try:
             print(f"[INFO] Processing topic: {row['topic_name'][:30]}...")
@@ -293,7 +265,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
         time_diffs = np.maximum(time_diffs, 0.0)
 
-        decay_constant = np.log(2) / self.DCIM_HALF_LIFE_HOURS
+        decay_constant = np.log(2) / Config["DCIM_HALF_LIFE_HOURS"]
         decay_factors = np.exp(-decay_constant * time_diffs)
 
         raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
@@ -308,7 +280,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             n_s = len(s_group)
             j_indices = np.arange(n_s)
 
-            penalties = 1.0 + self.DCIM_BETA_PENALTY * j_indices
+            penalties = 1.0 + Config["DCIM_BETA_PENALTY"] * j_indices
             abs_impacts = np.abs(s_group["raw_impact"].values)
             penalized_sum = np.sum(abs_impacts / penalties)
 
@@ -327,17 +299,18 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if U >= 2:
             global_sign = np.sign(total_impact_sum)
             U_agree = np.sum(np.sign(source_impacts) == global_sign)
-            C = 1.0 + self.DCIM_GAMMA_CONSENSUS * (U_agree / U)
+            C = 1.0 + Config["DCIM_GAMMA_CONSENSUS"] * (U_agree / U)
         else:
             C = 1.0
 
         # PHASE 4 - velocity
         N_total = len(group)
-        N_recent = np.sum(time_diffs <= self.DCIM_RECENT_WINDOW_HOURS)
+        N_recent = np.sum(time_diffs <= Config["DCIM_RECENT_WINDOW_HOURS"])
         V = N_recent / (N_total + 1.0)
 
         # PHASE 5 - final severity
-        inside_tanh = self.DCIM_KAPPA_SCALE * C * (1.0 + self.DCIM_DELTA_VELOCITY * V)
+        inside_tanh = Config["DCIM_KAPPA_SCALE"] * C
+        inside_tanh *= 1.0 + Config["DCIM_DELTA_VELOCITY"] * V
         inside_tanh *= total_impact_sum
         severity = math.tanh(inside_tanh)
 
@@ -417,10 +390,10 @@ if __name__ == "__main__":
     print("====== UpperPathAnalyzer Module Test ======")
 
     try:
-        upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
-        df_topics = pd.read_csv(TOPICS_PATH)
-        df_articles = pd.read_csv(ARTICLES_PATH)
-        df_weights = pd.read_csv(WEIGHTS_PATH)
+        upper_path_analyzer = UpperPathAnalyzer(Config["INSTRUMENT_PATH"])
+        df_topics = pd.read_csv(Config["TOPICS_PATH"])
+        df_articles = pd.read_csv(Config["ARTICLES_PATH"])
+        df_weights = pd.read_csv(Config["WEIGHTS_PATH"])
 
         df_article_mapping = pd.merge(
             df_articles[["doc_hash", "source_name"]],
@@ -450,17 +423,19 @@ if __name__ == "__main__":
         print("====== Processing Upper Path Completed ======")
 
         print("====== Saving Results To File ======")
-        saving_result = UpperPathAnalyzer.save_trends(result, SAVE_PATH_PARQUET)
+        saving_result = UpperPathAnalyzer.save_trends(
+            result, Config["INSTRUMENT_TRENDS_SAVE_PATH_PARQUET"]
+        )
         if saving_result:
             print("====== Saving Completed ======")
         else:
             print("====== Saving Failed ======")
 
         # For debugging: save the result to a CSV as well
-        result.to_csv(SAVE_PATH_CSV, index=False)
+        result.to_csv(Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"], index=False)
         print(
             "[DEBUG] Also saved results to CSV for quick inspection at  + "
-            f"{SAVE_PATH_CSV}"
+            f"{Config['INSTRUMENT_TRENDS_SAVE_PATH_CSV']}"
         )
     except Exception as e:
         print(f"[FATAL ERROR] An error occurred during the UpperPathAnalyzer test: {e}")

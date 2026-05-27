@@ -1,31 +1,22 @@
 # Core imports
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 import fastparquet  # noqa: F401
 import numpy as np
 import pandas as pd
-from base_analyzer import BaseAnalyzer  # type: ignore
 
 # Handle API and LLM
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sklearn.cluster import HDBSCAN
 
+from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
+from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.prompts import PROMPTS  # type: ignore
+
 # Load environment variables from the .env file located in the project root
 load_dotenv()
-
-# Default instrument path (resolved relative to this file)
-BASE_DIR = Path(__file__).resolve().parents[2]
-INSTRUMENT_PATH = str(BASE_DIR / "data" / "instruments" / "instruments_sample.csv")
-TOPICS_PATH = str(BASE_DIR / "data" / "topics" / "topics_sample_large.csv")
-SAVE_PATH_CSV = str(BASE_DIR / "data" / "test_results" / "global_trends_report.csv")
-SAVE_PATH_PARQUET = str(BASE_DIR / "data" / "test_results" / "global_trends_parquet")
-
-# Minimum number of topics in a cluster to be considered a valid trend
-SEVERITY_THRESHOLD = 2
-MIN_CLUSTER_SIZE = 3  # Minimum number of topics to form a cluster (HDBSCAN parameter)
 
 
 class GlobalTrend(BaseModel):
@@ -46,7 +37,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
     similar topics together and generating a macro trend summary for each cluster.
     """
 
-    def __init__(self, instrument_path: str = INSTRUMENT_PATH):
+    def __init__(self, instrument_path: str = Config["INSTRUMENT_PATH"]):
         super().__init__()
         self.instrument_path = instrument_path
 
@@ -127,7 +118,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # min_cluster_size dictates the minimum number of articles to form a trend
         # TODO - Deftermine optimal min_cluster_size through experimentation
         clusterer = HDBSCAN(
-            min_cluster_size=MIN_CLUSTER_SIZE, metric="euclidean", copy=True
+            min_cluster_size=Config["MIN_CLUSTER_SIZE"], metric="euclidean", copy=True
         )
 
         # Convert list of lists to a 2D numpy array for scikit-learn
@@ -150,7 +141,8 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # 5. Group by clusters and generate a macro trend summary for each cluster group
         for cluster_id, group in clustered_df.groupby("cluster_id"):
             severity = self._calculate_severity(group)
-            if severity >= SEVERITY_THRESHOLD:  # Skip clusters that are too small
+            # Skip clusters that are too small
+            if severity >= Config["SEVERITY_THRESHOLD"]:
                 trend_data = self._generate_global_trend_summary(
                     cluster_id,
                     group,
@@ -182,16 +174,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
         first_article_time = str(group["date"].min())[:19]
         newest_article_time = str(group["date"].max())[:19]
 
-        prompt = f"""
-        You are a Chief Economist. Analyze the following cluster of news topics.
-        These topics were mathematically clustered together due to their semantic
-        similarity. Determine the overarching global macroeconomic narrative and its
-        overall direction ('up', 'down', or 'neutral'). Provide a concise title
-        and a 1-2 sentence description explaining the global impact.
-
-        Cluster Topics Context:
-        {topics_context}
-        """
+        prompt = PROMPTS["global_trends"].format(
+            topics_context=topics_context,
+        )
 
         try:
             parsed_result = self._call_openai_api_with_retry(prompt, GlobalTrend)
@@ -222,14 +207,16 @@ if __name__ == "__main__":
     print("====== LowerPathAnalyzer Module Test ======")
 
     try:
-        lower_path_analyzer = LowerPathAnalyzer(INSTRUMENT_PATH)
-        df_topics = pd.read_csv(TOPICS_PATH)
+        lower_path_analyzer = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
+        df_topics = pd.read_csv(Config["TOPICS_PATH"])
 
         result = lower_path_analyzer.process_data(df_topics)
         print("====== Processing Lower Path Completed ======")
 
         print("====== Saving Results To File ======")
-        saving_result = LowerPathAnalyzer.save_trends(result, SAVE_PATH_PARQUET)
+        saving_result = LowerPathAnalyzer.save_trends(
+            result, Config["GLOBAL_TRENDS_SAVE_PATH_PARQUET"]
+        )
         if saving_result:
             print("====== Saving Completed ======")
         else:
@@ -237,10 +224,10 @@ if __name__ == "__main__":
 
         # For debugging: save the result to a CSV as well
         # (not required, but useful for quick checks)
-        result.to_csv(SAVE_PATH_CSV, index=False)
+        result.to_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"], index=False)
         print(
             "[DEBUG] Also saved results to CSV for"
-            + f" quick inspection at {SAVE_PATH_CSV}"
+            + f" quick inspection at {Config['GLOBAL_TRENDS_SAVE_PATH_CSV']}"
         )
     except Exception as e:
         print(f"[FATAL ERROR] An error occurred during the LowerPathAnalyzer test: {e}")
