@@ -25,10 +25,13 @@ SAVE_PATH_PARQUET = str(BASE_DIR / "data" / "test_results" / "global_trends_parq
 
 # Minimum number of topics in a cluster to be considered a valid trend
 SEVERITY_THRESHOLD = 2
+MIN_CLUSTER_SIZE = 3  # Minimum number of topics to form a cluster (HDBSCAN parameter)
 
 
 class GlobalTrend(BaseModel):
-    """ """
+    """
+    Pydantic model for parsing the output of the global trend summary from OpenAI.
+    """
 
     title: str = Field(description="Short summary of the global macroeconomic trend.")
     description: str = Field(
@@ -38,14 +41,27 @@ class GlobalTrend(BaseModel):
 
 
 class LowerPathAnalyzer(BaseAnalyzer):
-    """_summary_"""
+    """
+    Analyzer for identifying global macroeconomic trends by clustering semantically
+    similar topics together and generating a macro trend summary for each cluster.
+    """
 
     def __init__(self, instrument_path: str = INSTRUMENT_PATH):
         super().__init__()
         self.instrument_path = instrument_path
 
     def _generate_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
-        """ """
+        """
+        Generates embeddings for a list of texts using OpenAI's API in batch mode.
+        This is more efficient than making individual API calls for each text.
+
+        Args:
+            texts (list[str]): A list of strings for which to generate embeddings.
+
+        Returns:
+            list[list[float]]: A list of embedding vectors corresponding to the input
+            texts, in the same order as the input list.
+        """
         response = self.client.embeddings.create(
             input=texts,
             model="text-embedding-3-small",  # NOTE: Using text-embedding-3-small
@@ -61,11 +77,31 @@ class LowerPathAnalyzer(BaseAnalyzer):
         For simplicity, this implementation uses the number of topics in the cluster as
         a severity indicator, but this can be enhanced with more complex logic
         (e.g., average distance)
+
+        Args:
+            group (pd.DataFrame): A DataFrame containing the topics in a cluster.
+
+        Returns:
+            float: A severity score for the cluster, where higher values indicate more
+            significant trends.
         """
         return float(len(group))
 
     def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
-        """ """
+        """
+        Processes the input topics DataFrame to identify global macroeconomic trends.
+        This involves generating embeddings, clustering topics, and summarizing trends.
+
+        Args:
+            topics_df (pd.DataFrame): DataFrame containing the topics with columns
+            ['topic_id', 'topic_name', 'topic_description', 'date'].
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the identified global trends with
+            columns ['trend_id', 'current_time', 'first_article_time',
+            'newest_article_time', 'cluster_id', 'title', 'description', 'severity',
+            'direction', 'topic_ids'].
+        """
         if topics_df.empty:
             return pd.DataFrame()
 
@@ -90,7 +126,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # 3. Apply HDBSCAN Clustering
         # min_cluster_size dictates the minimum number of articles to form a trend
         # TODO - Deftermine optimal min_cluster_size through experimentation
-        clusterer = HDBSCAN(min_cluster_size=3, metric="euclidean", copy=True)
+        clusterer = HDBSCAN(
+            min_cluster_size=MIN_CLUSTER_SIZE, metric="euclidean", copy=True
+        )
 
         # Convert list of lists to a 2D numpy array for scikit-learn
         embeddings_array = np.array(topics_df["embedding"].tolist())
@@ -124,7 +162,18 @@ class LowerPathAnalyzer(BaseAnalyzer):
     def _generate_global_trend_summary(
         self, cluster_id: int, group: pd.DataFrame, severity: float
     ) -> dict:
-        """ """
+        """
+        Generates a summary for a given cluster of topics by calling the OpenAI API.
+        The summary includes a title, description, and direction of the trend.
+
+        Args:
+            cluster_id (int): The ID of the cluster being summarized.
+            group (pd.DataFrame): A DataFrame containing the topics in the cluster.
+            severity (float): The calculated severity score for the cluster.
+
+        Returns:
+            dict: A dictionary containing the trend summary and related metadata.
+        """
         topics_context = group[["topic_name", "topic_description"]].to_dict(
             orient="records"
         )

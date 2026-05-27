@@ -30,6 +30,11 @@ WEIGHTS_PATH = str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv")
 
 # Define Pydantic schemas for strict LLM JSON outputs
 class TickerImpact(BaseModel):
+    """
+    Pydantic model for parsing the mapping of a topic to impacted tickers and their
+    sentiment.
+    """
+
     ticker: str = Field(description="Exact ticker symbol from the available list.")
     sentiment: float = Field(
         description="Directional impact of the news on THIS SPECIFIC ticker. "
@@ -38,6 +43,11 @@ class TickerImpact(BaseModel):
 
 
 class InstrumentMapping(BaseModel):
+    """
+    Pydantic model for parsing the mapping of a topic to impacted tickers and their
+    sentiment.
+    """
+
     impacts: list[TickerImpact] = Field(
         description="List of impacted tickers and their sentiment."
         + " Return empty if none."
@@ -45,6 +55,10 @@ class InstrumentMapping(BaseModel):
 
 
 class InstrumentTrend(BaseModel):
+    """
+    Pydantic model for parsing the output of the instrument trend summary from
+    OpenAI."""
+
     title: str = Field(description="Short summary of the trend.")
     description: str = Field(
         description="Detailed explanation of the trend and its impact."

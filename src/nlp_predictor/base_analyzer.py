@@ -13,6 +13,24 @@ from tenacity import (
 
 
 class BaseAnalyzer(ABC):
+    """
+    Abstract base class for analyzing topic data and generating trends reports.
+    Provides common functionality for calling the OpenAI API with structured
+    output and saving results to a partitioned Parquet dataset. Subclasses
+    must implement the process_data method to define specific analysis logic.
+    Key features:
+    - OpenAI API integration with structured output parsing using Pydantic models.
+    - Exponential backoff retry mechanism to handle API rate limits gracefully.
+    - Robust Parquet saving functionality that appends to existing datasets without
+    overwriting, using the fastparquet engine for efficient partitioning and
+    writing.
+
+    Note: The class assumes that the OPENAI_API_KEY environment variable is set for
+    authentication with the OpenAI API. It also expects the input DataFrame to have
+    specific columns (e.g., 'embedding') for processing, which should be handled by the
+    subclasses.
+    """
+
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -76,7 +94,6 @@ class BaseAnalyzer(ABC):
 
         Returns:
             bool: The return value. True for success, False otherwise.
-
         """
         if result_df.empty:
             print("[INFO] DataFrame is empty. Skipping Parquet save operation.")
