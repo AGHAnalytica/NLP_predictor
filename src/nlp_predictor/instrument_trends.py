@@ -1,9 +1,11 @@
 # Core imports
+import math
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import fastparquet  # noqa: F401
+import numpy as np
 import pandas as pd
 from base_analyzer import BaseAnalyzer  # type: ignore
 
@@ -22,7 +24,8 @@ SAVE_PATH_CSV = str(BASE_DIR / "data" / "test_results" / "instrument_trends_repo
 SAVE_PATH_PARQUET = str(
     BASE_DIR / "data" / "test_results" / "instrument_trends_parquet"
 )
-
+ARTICLES_PATH = str(BASE_DIR / "data" / "scraping" / "articles_sample.csv")
+WEIGHTS_PATH = str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv")
 
 # Define Pydantic schemas for strict LLM JSON outputs
 class InstrumentMapping(BaseModel):
@@ -95,18 +98,21 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if topics_df.empty:
             return pd.DataFrame()
 
-        # 1. Map topics to multiple instruments
-        print("[INFO] Starting topic to instrument mapping...")
-        topics_df["instruments"] = topics_df.apply(
+        # 1. Map topics to multiple instruments and sentiment analysis``
+        self.current_time = datetime.now(UTC)
+
+        print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
+
+        topics_df["impacts"] = topics_df.apply(
             self._map_topic_to_instrument, axis=1
         )
 
         # 2. Explode the list column into separate rows
-        exploded_df = topics_df.explode("instruments")
+        exploded_df = topics_df.explode("impacts")
 
         # 3.Filter out topics that don't map to any specific instrument
-        mapped_df = exploded_df.dropna(subset=["instruments"]).rename(
-            columns={"instruments": "instrument"}
+        mapped_df = exploded_df.dropna(subset=["impacts"]).rename(
+            columns={"impacts": "instrument"}
         )
 
         if mapped_df.empty:
@@ -119,7 +125,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         results = []
 
         # 4. Group by instrument
-        print("[INFO] Generating trends per instrument...")
+        print("[INFO] Generating trends per instrument using the DCIM model...")
         for instrument, group in mapped_df.groupby("instrument"):
             severity = self._calculate_instrument_severity(group)
             trend_data = self._generate_instrument_trend(instrument, group, severity)
@@ -181,20 +187,137 @@ class UpperPathAnalyzer(BaseAnalyzer):
             print(f"[ERROR] Mapping failed for '{row['topic_name']}': {e}")
             return []
 
+    # =========================================================================
+    # DCIM HIPERPARAMETERS (Directional Confirmed Impact Model)
+    # =========================================================================
+    DCIM_HALF_LIFE_HOURS = 4.0
+    DCIM_BETA_PENALTY = 0.5
+    DCIM_GAMMA_CONSENSUS = 0.3
+    DCIM_DELTA_VELOCITY = 0.3
+    DCIM_KAPPA_SCALE = 2.0
+    DCIM_RECENT_WINDOW_HOURS = 0.5
+
     def _calculate_instrument_severity(self, group: pd.DataFrame) -> float:
-        """Calculates a severity score for the instrument based on the number of
-        related topics. This is a simple heuristic where more related topics
-        indicate higher severity.
+        """
+        Calculates the directional severity score for a financial instrument using the
+        Directional Confirmed Impact Model (DCIM).
+
+        This method replaces simple heuristic counting with a robust quantitative model.
+        It evaluates a collection of news articles (or topics) related to a specific
+        instrument by processing them through five distinct stages:
+        1. Time Decay: Applies an exponential decay based on the article's age
+        (half-life).
+        2. Echo Chamber Penalty: Penalizes redundant publications from the same source
+        using a harmonic decay function.
+        3. Consensus Bonus: Amplifies the signal if multiple independent sources agree
+        on the sentiment direction.
+        4. Velocity Multiplier: Increases the impact if there is a sudden influx of
+        recent articles (breaking news).
+        5. Market Saturation: Flattens the final score into a [-1.0, 1.0] range using a
+        hyperbolic tangent (tanh) function.
 
         Args:
-            group (pd.DataFrame): A DataFrame containing the topics related to the
-            instrument.
+            group (pd.DataFrame): A DataFrame containing the articles/topics related to
+            the instrument.
+                Must contain the following columns:
+                - 'date' (datetime): The publication timestamp of the article.
+                - 'source_name' (str): The name or identifier of the publisher
+                (e.g., 'Bloomberg', 'Reuters').
+                - 'sentiment' (float): The directional sentiment of the article,
+                typically ranging from -1.0 (highly negative) to 1.0 (highly positive).
+                - 'source_weight' (float): The credibility or influence weight of the
+                source, strictly in the range (0.0, 1.0].
 
         Returns:
-            float: A severity score (e.g., the count of related topics).
+            float: The final instrument severity score, bounded between -1.0 and 1.0.
+                - Values near -1.0 indicate a strong negative (bearish) consensus.
+                - Values near  0.0 indicate neutral sentiment, conflicting signals, or
+                market noise.
+                - Values near +1.0 indicate a strong positive (bullish) consensus.
 
+        Raises:
+            ValueError: If the input `group` DataFrame is missing any of the required
+            columns.
+
+        Notes:
+            The method relies on several class-level hyperparameters prefixed with
+            `DCIM_` (e.g., `DCIM_HALF_LIFE_HOURS`,
+            `DCIM_BETA_PENALTY`) to calibrate the model's sensitivity. It also attempts
+            to dynamically resolve the reference
+            time via `self.current_time` to calculate the exact age of the articles.
         """
-        return float(len(group))
+        if group.empty:
+            return 0.0
+
+        required_cols = ['date', 'source_name', 'sentiment', 'source_weight']
+        if not all(col in group.columns for col in required_cols):
+            print("[WARNING] Missing DCIM columns. Using simple article counter")
+            return float(len(group))
+
+        # PHASE 1 - influence of a single article
+        time_diffs = (self.current_time - group['date']).dt.total_seconds() / 3600.0
+        time_diffs = np.maximum(time_diffs, 0.0)
+
+        decay_constant = np.log(2) / self.DCIM_HALF_LIFE_HOURS
+        decay_factors = np.exp(-decay_constant * time_diffs)
+
+        raw_impacts = group['source_weight'] * group['sentiment'] * decay_factors
+
+        temp_df = group.copy()
+        temp_df['raw_impact'] = raw_impacts
+        temp_df = temp_df.sort_values(by='date', ascending=False)
+
+        print(f"[DEBUG] temp_df: {temp_df}")
+        # PHASE 2 - echo chamber penalty
+        source_impacts = []
+        for source, s_group in temp_df.groupby('source_name'):
+            n_s = len(s_group)
+            j_indices = np.arange(n_s)
+
+            penalties = 1.0 + self.DCIM_BETA_PENALTY * j_indices
+            abs_impacts = np.abs(s_group['raw_impact'].values)
+            penalized_sum = np.sum(abs_impacts / penalties)
+
+            mean_impact = s_group['raw_impact'].mean()
+            sign_s = np.sign(mean_impact) if mean_impact != 0 else 1.0
+            source_impacts.append(sign_s * penalized_sum)
+
+        source_impacts = np.array(source_impacts)
+        total_impact_sum = np.sum(source_impacts)
+
+        if total_impact_sum == 0:
+            return 0.0
+
+        print(f"[DEBUG] total_impact_sum: {total_impact_sum}")
+        print(f"[DEBUG] source_impacts: {source_impacts}")
+        # PHASE 3 - different sources bonus (consensus)
+        U = len(source_impacts)
+        if U >= 2:
+            global_sign = np.sign(total_impact_sum)
+            U_agree = np.sum(np.sign(source_impacts) == global_sign)
+            C = 1.0 + self.DCIM_GAMMA_CONSENSUS * (U_agree / U)
+        else:
+            C = 1.0
+
+        print(f"[DEBUG] C: {C}")
+        # PHASE 4 - velocity
+        N_total = len(group)
+        N_recent = np.sum(time_diffs <= self.DCIM_RECENT_WINDOW_HOURS)
+        V = N_recent / (N_total + 1.0)
+
+        print(f"[DEBUG] N_total: {N_total}")
+        print(f"[DEBUG] N_recent: {N_recent}")
+        print(f"[DEBUG] V: {V}")
+
+        # PHASE 5 - final severity
+        scale = self.DCIM_KAPPA_SCALE * C
+        velocity_factor = 1.0 + self.DCIM_DELTA_VELOCITY * V
+        inside_tanh = scale * velocity_factor * total_impact_sum
+        severity = math.tanh(inside_tanh)
+
+        print(f"[DEBUG] severity: {severity}")
+        return float(np.clip(severity, -1.0, 1.0))
+
 
     def _generate_instrument_trend(
         self, instrument: str, group: pd.DataFrame, severity: float
@@ -268,12 +391,36 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
 if __name__ == "__main__":
     print("====== UpperPathAnalyzer Module Test ======")
-
     try:
         upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
         df_topics = pd.read_csv(TOPICS_PATH)
+        df_articles = pd.read_csv(ARTICLES_PATH)
+        df_weights = pd.read_csv(WEIGHTS_PATH)
 
-        result = upper_path_analyzer.process_data(df_topics)
+        df_article_mapping = pd.merge(
+            df_articles[["doc_hash", "source_name"]],
+            df_weights[["source_name", "source_weight"]],
+            on="source_name",
+            how="left"
+        )
+
+        df_topics_enriched = pd.merge(
+            df_topics,
+            df_article_mapping[["doc_hash", "source_weight", "source_name"]],
+            on="doc_hash",
+            how="left"
+        )
+
+        source_weight_col = df_topics_enriched["source_weight"]
+        df_topics_enriched["source_weight"] = source_weight_col.fillna(1.0)
+
+        df_topics_enriched["date"] = pd.to_datetime(
+                                                    df_topics_enriched["date"],
+                                                    utc=True)
+
+        print("[INFO] Successfully merged source weights into topics.")
+
+        result = upper_path_analyzer.process_upper_path(df_topics_enriched)
         print("====== Processing Upper Path Completed ======")
 
         print("====== Saving Results To File ======")
