@@ -33,14 +33,14 @@ class TickerImpact(BaseModel):
     ticker: str = Field(description="Exact ticker symbol from the available list.")
     sentiment: float = Field(
         description="Directional impact of the news on THIS SPECIFIC ticker. "
-                "From -1.0 (highly negative) to 1.0 (highly positive). 0.0 is neutral."
+        "From -1.0 (highly negative) to 1.0 (highly positive). 0.0 is neutral."
     )
 
 
 class InstrumentMapping(BaseModel):
     impacts: list[TickerImpact] = Field(
-        description="List of impacted tickers and their sentiment." +
-        " Return empty if none."
+        description="List of impacted tickers and their sentiment."
+        + " Return empty if none."
     )
 
 
@@ -119,9 +119,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
 
-        topics_df["impacts"] = topics_df.apply(
-            self._map_topic_to_instrument, axis=1
-        )
+        topics_df["impacts"] = topics_df.apply(self._map_topic_to_instrument, axis=1)
 
         exploded_df = topics_df.explode("impacts")
         exploded_df = exploded_df.dropna(subset=["impacts"])
@@ -136,8 +134,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
         # Expand the dictionaries inside the 'impacts' column into separate columns
         impacts_expanded = exploded_df["impacts"].apply(pd.Series)
 
-        mapped_df = pd.concat([exploded_df.drop(columns=["impacts"]), impacts_expanded],
-                                axis=1)
+        mapped_df = pd.concat(
+            [exploded_df.drop(columns=["impacts"]), impacts_expanded], axis=1
+        )
 
         mapped_df["instrument"] = mapped_df["instrument"].astype(str)
         mapped_df["sentiment"] = mapped_df["sentiment"].astype(float)
@@ -200,10 +199,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
                 extracted_tickers.append(ticker)
 
                 if ticker in self.valid_tickers:
-                    valid_impacts.append({
-                        "instrument": ticker,
-                        "sentiment": float(item.sentiment)
-                    })
+                    valid_impacts.append(
+                        {"instrument": ticker, "sentiment": float(item.sentiment)}
+                    )
 
             if not valid_impacts and extracted_tickers:
                 print(
@@ -269,36 +267,38 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if group.empty:
             return 0.0
 
-        required_cols = ['date', 'source_name', 'sentiment', 'source_weight']
+        required_cols = ["date", "source_name", "sentiment", "source_weight"]
         if not all(col in group.columns for col in required_cols):
-            print("[WARNING] Missing DCIM required columns." +
-                "Using simple article counter instead")
+            print(
+                "[WARNING] Missing DCIM required columns."
+                + "Using simple article counter instead"
+            )
             return float(len(group))
 
         # PHASE 1 - influence of a single article
-        time_diffs = (self.current_time - group['date']).dt.total_seconds() / 3600.0
+        time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
         time_diffs = np.maximum(time_diffs, 0.0)
 
         decay_constant = np.log(2) / self.DCIM_HALF_LIFE_HOURS
         decay_factors = np.exp(-decay_constant * time_diffs)
 
-        raw_impacts = group['source_weight'] * group['sentiment'] * decay_factors
+        raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
 
         temp_df = group.copy()
-        temp_df['raw_impact'] = raw_impacts
-        temp_df = temp_df.sort_values(by='date', ascending=False)
+        temp_df["raw_impact"] = raw_impacts
+        temp_df = temp_df.sort_values(by="date", ascending=False)
 
         # PHASE 2 - echo chamber penalty
         source_impacts = []
-        for _, s_group in temp_df.groupby('source_name'):
+        for _, s_group in temp_df.groupby("source_name"):
             n_s = len(s_group)
             j_indices = np.arange(n_s)
 
             penalties = 1.0 + self.DCIM_BETA_PENALTY * j_indices
-            abs_impacts = np.abs(s_group['raw_impact'].values)
+            abs_impacts = np.abs(s_group["raw_impact"].values)
             penalized_sum = np.sum(abs_impacts / penalties)
 
-            mean_impact = s_group['raw_impact'].mean()
+            mean_impact = s_group["raw_impact"].mean()
             sign_s = np.sign(mean_impact) if mean_impact != 0 else 1.0
             source_impacts.append(sign_s * penalized_sum)
 
@@ -412,22 +412,23 @@ if __name__ == "__main__":
             df_articles[["doc_hash", "source_name"]],
             df_weights[["source_name", "source_weight"]],
             on="source_name",
-            how="left"
+            how="left",
         )
 
         df_topics_enriched = pd.merge(
             df_topics,
             df_article_mapping[["doc_hash", "source_weight", "source_name"]],
             on="doc_hash",
-            how="left"
+            how="left",
         )
 
-        df_topics_enriched["source_weight"] = (
-            df_topics_enriched["source_weight"].fillna(1.0)
-        )
+        df_topics_enriched["source_weight"] = df_topics_enriched[
+            "source_weight"
+        ].fillna(1.0)
 
-        df_topics_enriched["date"] = pd.to_datetime(df_topics_enriched["date"],
-                                                    utc=True)
+        df_topics_enriched["date"] = pd.to_datetime(
+            df_topics_enriched["date"], utc=True
+        )
 
         print("[INFO] Successfully merged source weights into topics.")
 
@@ -443,7 +444,9 @@ if __name__ == "__main__":
 
         # For debugging: save the result to a CSV as well
         result.to_csv(SAVE_PATH_CSV, index=False)
-        print("[DEBUG] Also saved results to CSV for quick inspection at  + "
-            f"{SAVE_PATH_CSV}")
+        print(
+            "[DEBUG] Also saved results to CSV for quick inspection at  + "
+            f"{SAVE_PATH_CSV}"
+        )
     except Exception as e:
         print(f"[FATAL ERROR] An error occurred during the UpperPathAnalyzer test: {e}")
