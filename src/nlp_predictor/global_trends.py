@@ -168,6 +168,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
             "topic_ids": topic_ids,
         }
 
+
 if __name__ == "__main__":
     print("====== LowerPathAnalyzer Module Test ======")
 

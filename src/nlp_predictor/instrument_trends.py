@@ -431,7 +431,6 @@ if __name__ == "__main__":
 
         print("[INFO] Successfully merged source weights into topics.")
 
-        # BUG FIX: Call the correct method name `process_data`
         result = upper_path_analyzer.process_data(df_topics_enriched)
         print("====== Processing Upper Path Completed ======")
 
