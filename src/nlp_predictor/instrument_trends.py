@@ -27,11 +27,20 @@ SAVE_PATH_PARQUET = str(
 ARTICLES_PATH = str(BASE_DIR / "data" / "scraping" / "articles_sample.csv")
 WEIGHTS_PATH = str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv")
 
+
 # Define Pydantic schemas for strict LLM JSON outputs
+class TickerImpact(BaseModel):
+    ticker: str = Field(description="Exact ticker symbol from the available list.")
+    sentiment: float = Field(
+        description="Directional impact of the news on THIS SPECIFIC ticker. "
+                "From -1.0 (highly negative) to 1.0 (highly positive). 0.0 is neutral."
+    )
+
+
 class InstrumentMapping(BaseModel):
-    tickers: list[str] = Field(
-        description="""List of ticker symbols of the financial instruments impacted.
-        Return an empty list if none."""
+    impacts: list[TickerImpact] = Field(
+        description="List of impacted tickers and their sentiment." +
+        " Return empty if none."
     )
 
 
@@ -57,17 +66,26 @@ class UpperPathAnalyzer(BaseAnalyzer):
     topic to relevant instruments, and generates a trend summary for each instrument
     based on the associated topics. The final output is a DataFrame containing the
     trends for each instrument, ready to be saved as a partitioned Parquet dataset.
-
     """
+
+    # =========================================================================
+    # DCIM HYPERPARAMETERS (Directional Confirmed Impact Model)
+    # =========================================================================
+    DCIM_HALF_LIFE_HOURS = 4.0
+    DCIM_BETA_PENALTY = 0.5
+    DCIM_GAMMA_CONSENSUS = 0.3
+    DCIM_DELTA_VELOCITY = 0.3
+    DCIM_KAPPA_SCALE = 2.0
+    DCIM_RECENT_WINDOW_HOURS = 0.5
 
     def __init__(self, instruments_path: str = INSTRUMENT_PATH):
         super().__init__()
 
-        # 1. Load available instruments and create a context string for the LLM
+        # Load available instruments and create a context string for the LLM
         self.instruments_df = pd.read_csv(instruments_path)
         self.valid_tickers = set(self.instruments_df["ticker"].dropna().tolist())
 
-        # 2. Create clean dictionary for the LLM (Ticker: Full Name)
+        # Create clean dictionary for the LLM (Ticker: Full Name)
         self.available_instruments = dict(
             zip(
                 self.instruments_df["ticker"],
@@ -79,26 +97,24 @@ class UpperPathAnalyzer(BaseAnalyzer):
     def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main processing function for the upper path. It takes a DataFrame of topics,
-        maps each topic to relevant financial instruments, and then generates a trend
-        summary for each instrument based on the associated topics. The final output
-        is a DataFrame containing the trends for each instrument, ready to be saved as a
-        partitioned Parquet dataset.
+        maps each topic to relevant financial instruments along with their
+        entity-specific sentiment, and then generates a trend summary for each
+        instrument based on the associated topics using the DCIM severity model.
 
         Args:
             topics_df (pd.DataFrame): A DataFrame containing the topics with columns
-            such as 'topic_id', 'topic_name', 'topic_description', and 'date'.
+            such as 'topic_id', 'topic_name', 'topic_description', 'date',
+            'source_name', and 'source_weight'.
 
         Returns:
             pd.DataFrame: A DataFrame containing the generated trends for each
             instrument, including columns like 'trend_id', 'current_time',
             'first_article_time', 'newest_article_time', 'instrument', 'title',
             'description', 'severity', 'direction', and 'topic_ids'.
-
         """
         if topics_df.empty:
             return pd.DataFrame()
 
-        # 1. Map topics to multiple instruments and sentiment analysis``
         self.current_time = datetime.now(UTC)
 
         print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
@@ -107,24 +123,26 @@ class UpperPathAnalyzer(BaseAnalyzer):
             self._map_topic_to_instrument, axis=1
         )
 
-        # 2. Explode the list column into separate rows
         exploded_df = topics_df.explode("impacts")
+        exploded_df = exploded_df.dropna(subset=["impacts"])
 
-        # 3.Filter out topics that don't map to any specific instrument
-        mapped_df = exploded_df.dropna(subset=["impacts"]).rename(
-            columns={"impacts": "instrument"}
-        )
-
-        if mapped_df.empty:
+        if exploded_df.empty:
             print(
                 "[WARNING] All topics were dropped after mapping. "
                 "The result will be empty."
             )
             return pd.DataFrame()
 
-        results = []
+        # Expand the dictionaries inside the 'impacts' column into separate columns
+        impacts_expanded = exploded_df["impacts"].apply(pd.Series)
 
-        # 4. Group by instrument
+        mapped_df = pd.concat([exploded_df.drop(columns=["impacts"]), impacts_expanded],
+                                axis=1)
+
+        mapped_df["instrument"] = mapped_df["instrument"].astype(str)
+        mapped_df["sentiment"] = mapped_df["sentiment"].astype(float)
+
+        results = []
         print("[INFO] Generating trends per instrument using the DCIM model...")
         for instrument, group in mapped_df.groupby("instrument"):
             severity = self._calculate_instrument_severity(group)
@@ -133,12 +151,13 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         return pd.DataFrame(results)
 
-    def _map_topic_to_instrument(self, row: pd.Series) -> list[str]:
-        """Maps a single topic to relevant financial instruments using the LLM.
-        The prompt provides the topic name and description, along with a list of
-        available instruments (tickers and full names). The LLM is asked to return a
-        list of ticker symbols that are directly impacted by the topic. If no
-        specific instruments are impacted, it should return an empty list.
+    def _map_topic_to_instrument(self, row: pd.Series) -> list[dict]:
+        """
+        Maps a single topic to relevant financial instruments using the LLM and
+        calculates sentiment. The prompt provides the topic name and description, along
+        with a list of available instruments (tickers and full names). The LLM is asked
+        to return a list of ticker symbols that are directly impacted by the topic,
+        along with a sentiment score for each.
         The output is strictly validated against the known tickers to filter
         out any hallucinations.
 
@@ -147,14 +166,18 @@ class UpperPathAnalyzer(BaseAnalyzer):
             and 'topic_description'.
 
         Returns:
-            list[str]: A list of ticker symbols that are relevant to the topic.
-
+            list[dict]: A list of dictionaries, where each dictionary contains:
+                - 'instrument': The valid ticker symbol.
+                - 'sentiment': The calculated sentiment score (-1.0 to 1.0).
         """
         prompt = f"""
         You are a quantitative financial analyst. Map the following news topic to ALL
-        applicable instruments from the list. If the topic does not directly impact any
-        of these specific instruments, return an empty list. IMPORTANT: Return ONLY the
-        exact 'ticker' symbols from the provided list, never full company names.
+        applicable instruments from the list.
+
+        For each impacted instrument, calculate the 'sentiment' score
+        between -1.0 and 1.0,
+        representing how this specific news affects that specific company's stock price.
+        IMPORTANT: Return ONLY exact 'ticker' symbols from the provided list.
 
         Available Instruments: {self.available_instruments}
 
@@ -167,35 +190,32 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
             parsed_result = self._call_openai_api_with_retry(prompt, InstrumentMapping)
 
-            tickers = parsed_result.tickers
-            tickers = [str(t).strip() for t in tickers]
+            impacts = parsed_result.impacts
 
-            # Validate against known tickers to filter out hallucinations
-            valid_extracted_tickers = [
-                ticker for ticker in tickers if ticker in self.valid_tickers
-            ]
+            valid_impacts = []
+            extracted_tickers = []
 
-            if not valid_extracted_tickers and tickers:
+            for item in impacts:
+                ticker = str(item.ticker).strip()
+                extracted_tickers.append(ticker)
+
+                if ticker in self.valid_tickers:
+                    valid_impacts.append({
+                        "instrument": ticker,
+                        "sentiment": float(item.sentiment)
+                    })
+
+            if not valid_impacts and extracted_tickers:
                 print(
                     "[DEBUG] Validated out hallucinatory tickers for '"
-                    f"{row['topic_name']}' : {tickers}"
+                    f"{row['topic_name']}' : {extracted_tickers}"
                 )
 
-            return valid_extracted_tickers
+            return valid_impacts
 
         except Exception as e:
             print(f"[ERROR] Mapping failed for '{row['topic_name']}': {e}")
             return []
-
-    # =========================================================================
-    # DCIM HIPERPARAMETERS (Directional Confirmed Impact Model)
-    # =========================================================================
-    DCIM_HALF_LIFE_HOURS = 4.0
-    DCIM_BETA_PENALTY = 0.5
-    DCIM_GAMMA_CONSENSUS = 0.3
-    DCIM_DELTA_VELOCITY = 0.3
-    DCIM_KAPPA_SCALE = 2.0
-    DCIM_RECENT_WINDOW_HOURS = 0.5
 
     def _calculate_instrument_severity(self, group: pd.DataFrame) -> float:
         """
@@ -205,8 +225,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
         This method replaces simple heuristic counting with a robust quantitative model.
         It evaluates a collection of news articles (or topics) related to a specific
         instrument by processing them through five distinct stages:
-        1. Time Decay: Applies an exponential decay based on the article's age
-        (half-life).
+        1. Time Decay: Applies an exponential decay based on the article's
+        age (half-life).
         2. Echo Chamber Penalty: Penalizes redundant publications from the same source
         using a harmonic decay function.
         3. Consensus Bonus: Amplifies the signal if multiple independent sources agree
@@ -231,13 +251,13 @@ class UpperPathAnalyzer(BaseAnalyzer):
         Returns:
             float: The final instrument severity score, bounded between -1.0 and 1.0.
                 - Values near -1.0 indicate a strong negative (bearish) consensus.
-                - Values near  0.0 indicate neutral sentiment, conflicting signals, or
-                market noise.
+                - Values near  0.0 indicate neutral sentiment, conflicting signals,
+                or market noise.
                 - Values near +1.0 indicate a strong positive (bullish) consensus.
 
         Raises:
-            ValueError: If the input `group` DataFrame is missing any of the required
-            columns.
+            ValueError: If the input `group` DataFrame is missing any of the
+            required columns.
 
         Notes:
             The method relies on several class-level hyperparameters prefixed with
@@ -251,7 +271,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         required_cols = ['date', 'source_name', 'sentiment', 'source_weight']
         if not all(col in group.columns for col in required_cols):
-            print("[WARNING] Missing DCIM columns. Using simple article counter")
+            print("[WARNING] Missing DCIM required columns." +
+                "Using simple article counter instead")
             return float(len(group))
 
         # PHASE 1 - influence of a single article
@@ -267,10 +288,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
         temp_df['raw_impact'] = raw_impacts
         temp_df = temp_df.sort_values(by='date', ascending=False)
 
-        print(f"[DEBUG] temp_df: {temp_df}")
         # PHASE 2 - echo chamber penalty
         source_impacts = []
-        for source, s_group in temp_df.groupby('source_name'):
+        for _, s_group in temp_df.groupby('source_name'):
             n_s = len(s_group)
             j_indices = np.arange(n_s)
 
@@ -288,8 +308,6 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if total_impact_sum == 0:
             return 0.0
 
-        print(f"[DEBUG] total_impact_sum: {total_impact_sum}")
-        print(f"[DEBUG] source_impacts: {source_impacts}")
         # PHASE 3 - different sources bonus (consensus)
         U = len(source_impacts)
         if U >= 2:
@@ -299,25 +317,17 @@ class UpperPathAnalyzer(BaseAnalyzer):
         else:
             C = 1.0
 
-        print(f"[DEBUG] C: {C}")
         # PHASE 4 - velocity
         N_total = len(group)
         N_recent = np.sum(time_diffs <= self.DCIM_RECENT_WINDOW_HOURS)
         V = N_recent / (N_total + 1.0)
 
-        print(f"[DEBUG] N_total: {N_total}")
-        print(f"[DEBUG] N_recent: {N_recent}")
-        print(f"[DEBUG] V: {V}")
-
         # PHASE 5 - final severity
-        scale = self.DCIM_KAPPA_SCALE * C
-        velocity_factor = 1.0 + self.DCIM_DELTA_VELOCITY * V
-        inside_tanh = scale * velocity_factor * total_impact_sum
+        inside_tanh = self.DCIM_KAPPA_SCALE * C * (1.0 + self.DCIM_DELTA_VELOCITY * V)
+        inside_tanh *= total_impact_sum
         severity = math.tanh(inside_tanh)
 
-        print(f"[DEBUG] severity: {severity}")
         return float(np.clip(severity, -1.0, 1.0))
-
 
     def _generate_instrument_trend(
         self, instrument: str, group: pd.DataFrame, severity: float
@@ -391,6 +401,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
 if __name__ == "__main__":
     print("====== UpperPathAnalyzer Module Test ======")
+
     try:
         upper_path_analyzer = UpperPathAnalyzer(INSTRUMENT_PATH)
         df_topics = pd.read_csv(TOPICS_PATH)
@@ -411,16 +422,17 @@ if __name__ == "__main__":
             how="left"
         )
 
-        source_weight_col = df_topics_enriched["source_weight"]
-        df_topics_enriched["source_weight"] = source_weight_col.fillna(1.0)
+        df_topics_enriched["source_weight"] = (
+            df_topics_enriched["source_weight"].fillna(1.0)
+        )
 
-        df_topics_enriched["date"] = pd.to_datetime(
-                                                    df_topics_enriched["date"],
+        df_topics_enriched["date"] = pd.to_datetime(df_topics_enriched["date"],
                                                     utc=True)
 
         print("[INFO] Successfully merged source weights into topics.")
 
-        result = upper_path_analyzer.process_upper_path(df_topics_enriched)
+        # BUG FIX: Call the correct method name `process_data`
+        result = upper_path_analyzer.process_data(df_topics_enriched)
         print("====== Processing Upper Path Completed ======")
 
         print("====== Saving Results To File ======")
@@ -431,8 +443,8 @@ if __name__ == "__main__":
             print("====== Saving Failed ======")
 
         # For debugging: save the result to a CSV as well
-        # (not required, but useful for quick checks)
         result.to_csv(SAVE_PATH_CSV, index=False)
-        print(f"[DEBUG] Saved results to CSV at {SAVE_PATH_CSV}")
+        print("[DEBUG] Also saved results to CSV for quick inspection at  + "
+            f"{SAVE_PATH_CSV}")
     except Exception as e:
         print(f"[FATAL ERROR] An error occurred during the UpperPathAnalyzer test: {e}")
