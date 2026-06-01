@@ -1,4 +1,5 @@
 # Core imports
+import os
 import uuid
 from datetime import UTC, datetime
 
@@ -205,7 +206,6 @@ class LowerPathAnalyzer(BaseAnalyzer):
 
 if __name__ == "__main__":
     print("====== LowerPathAnalyzer Module Test ======")
-
     try:
         lower_path_analyzer = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
         df_topics = pd.read_csv(Config["TOPICS_PATH"])
