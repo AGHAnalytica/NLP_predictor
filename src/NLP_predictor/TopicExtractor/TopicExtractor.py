@@ -3,14 +3,16 @@ from dataclasses import dataclass, field
 
 from openai import OpenAI
 
-import NLP_predictor.utils.prompts as prompts
-from NLP_predictor.utils.config import load_api_key
+import nlp_predictor.utils.prompts as prompts
+from nlp_predictor.utils.config import load_api_key
 
 
 @dataclass(slots=True, eq=False)
 class TopicExtractor:
     OPENAI_API_KEY: str
-    prompts: dict[str, str] = {"SYSTEM_PROMPT": prompts.SYSTEM_PROMPT}
+    prompts: dict[str, str] = field(
+        default_factory=lambda: {"SYSTEM_PROMPT": prompts.SYSTEM_PROMPT}
+    )
     _client: OpenAI = field(init=False)
 
     def __post_init__(self):
