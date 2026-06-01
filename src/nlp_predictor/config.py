@@ -15,6 +15,12 @@ Config = {
     "ARTICLES_PATH": str(BASE_DIR / "data" / "scraping" / "articles_sample.csv"),  # noqa: E501
     "WEIGHTS_PATH": str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv"),  # noqa: E501
     # Output save paths (Parquet format is strictly enforced for databases)
+    "TOPICS_SAVE_PATH_CSV": str(
+        BASE_DIR / "data" / "test_results" / "topics_report.csv"
+    ),  # noqa: E501
+    "TOPICS_SAVE_PATH_PARQUET": str(
+        BASE_DIR / "data" / "test_results" / "topics_parquet"
+    ),  # noqa: E501
     "GLOBAL_TRENDS_SAVE_PATH_CSV": str(
         BASE_DIR / "data" / "test_results" / "global_trends_report.csv"
     ),  # noqa: E501
