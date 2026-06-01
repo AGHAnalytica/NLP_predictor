@@ -16,7 +16,7 @@ from nlp_predictor.config import Config  # type: ignore
 from nlp_predictor.prompts import PROMPTS  # type: ignore
 
 # Load environment variables from the .env file located in the project root
-load_dotenv()
+load_dotenv(override=True)
 
 
 # Define Pydantic schemas for strict LLM JSON outputs
