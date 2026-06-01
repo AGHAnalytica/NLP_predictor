@@ -18,6 +18,16 @@ from nlp_predictor.prompts import PROMPTS  # type: ignore
 # Load environment variables from the .env file located in the project root
 load_dotenv(override=True)
 
+# Fixed sentiment scale the LLM is instructed to use (see the instrument_trends prompt).
+# Snapping the model's free-form score onto these anchors removes run-to-run decimal
+# drift and keeps the value calibrated the same way across independent calls.
+_SENTIMENT_LEVELS = (-1.0, -0.5, 0.0, 0.5, 1.0)
+
+
+def _quantize_sentiment(value: float) -> float:
+    """Snap a raw sentiment score to the nearest fixed-scale level."""
+    return min(_SENTIMENT_LEVELS, key=lambda level: abs(level - value))
+
 
 # Define Pydantic schemas for strict LLM JSON outputs
 class TickerImpact(BaseModel):
@@ -28,8 +38,10 @@ class TickerImpact(BaseModel):
 
     ticker: str = Field(description="Exact ticker symbol from the available list.")
     sentiment: float = Field(
-        description="Directional impact of the news on THIS SPECIFIC ticker. "
-        "From -1.0 (highly negative) to 1.0 (highly positive). 0.0 is neutral."
+        description="Directional impact of the news on THIS SPECIFIC ticker, on a "
+        "fixed 5-point scale: -1.0 / -0.5 / 0.0 / 0.5 / 1.0 (negative = bearish, "
+        "0.0 = neutral, positive = bullish). See the instrument_trends prompt for the "
+        "anchors. Also snapped to the nearest level by _quantize_sentiment."
     )
 
 
@@ -89,6 +101,10 @@ class UpperPathAnalyzer(BaseAnalyzer):
             )
         )
 
+        # Topic names whose instrument mapping raised (distinct from "no instruments").
+        # Reset at the start of every process_data run.
+        self._mapping_failures: list[str] = []
+
     def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
         """
         Main processing function for the upper path. It takes a DataFrame of topics,
@@ -115,11 +131,21 @@ class UpperPathAnalyzer(BaseAnalyzer):
         print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
 
         # Each topic maps independently, so fan the LLM calls out concurrently.
+        self._mapping_failures = []
         topic_rows = [row for _, row in topics_df.iterrows()]
         topics_df = topics_df.copy()
         topics_df["impacts"] = self._parallel_map(
             self._map_topic_to_instrument, topic_rows
         )
+
+        # Surface failed mappings: an errored topic returns [] just like a genuinely
+        # irrelevant one, so without this a partial outage looks like "no signal".
+        if self._mapping_failures:
+            print(
+                f"[WARNING] {len(self._mapping_failures)}/{len(topic_rows)} topic "
+                "mappings FAILED (not the same as 'no instruments impacted'); "
+                "instrument signals may be incomplete."
+            )
 
         exploded_df = topics_df.explode("impacts")
         exploded_df = exploded_df.dropna(subset=["impacts"])
@@ -161,8 +187,12 @@ class UpperPathAnalyzer(BaseAnalyzer):
         calculates sentiment. The prompt provides the topic name and description, along
         with a list of available instruments (tickers and full names). The LLM is asked
         to return a list of ticker symbols that are directly impacted by the topic,
-        along with a sentiment score for each.
-        The output is strictly validated against the known tickers to filter
+        along with a sentiment score for each on a fixed 5-point scale
+        (-1.0 / -0.5 / 0.0 / 0.5 / 1.0).
+
+        Each returned score is snapped to the nearest scale level via
+        :func:`_quantize_sentiment`, so run-to-run decimal drift cannot leak into the
+        DCIM. The output is also strictly validated against the known tickers to filter
         out any hallucinations.
 
         Args:
@@ -172,7 +202,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
         Returns:
             list[dict]: A list of dictionaries, where each dictionary contains:
                 - 'instrument': The valid ticker symbol.
-                - 'sentiment': The calculated sentiment score (-1.0 to 1.0).
+                - 'sentiment': The quantized sentiment score, one of
+                  {-1.0, -0.5, 0.0, 0.5, 1.0}.
         """
         prompt = PROMPTS["instrument_trends"].format(
             available_instruments=self.available_instruments,
@@ -196,7 +227,10 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
                 if ticker in self.valid_tickers:
                     valid_impacts.append(
-                        {"instrument": ticker, "sentiment": float(item.sentiment)}
+                        {
+                            "instrument": ticker,
+                            "sentiment": _quantize_sentiment(float(item.sentiment)),
+                        }
                     )
 
             if not valid_impacts and extracted_tickers:
@@ -209,56 +243,27 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         except Exception as e:
             print(f"[ERROR] Mapping failed for '{row['topic_name']}': {e}")
+            self._mapping_failures.append(str(row.get("topic_name", "?")))
             return []
 
     def _calculate_instrument_severity(self, group: pd.DataFrame) -> float:
         """
-        Calculates the directional severity score for a financial instrument using the
-        Directional Confirmed Impact Model (DCIM).
+        Score a financial instrument's directional severity in [-1.0, 1.0].
 
-        This method replaces simple heuristic counting with a robust quantitative model.
-        It evaluates a collection of news articles (or topics) related to a specific
-        instrument by processing them through five distinct stages:
-        1. Time Decay: Applies an exponential decay based on the article's
-        age (half-life).
-        2. Echo Chamber Penalty: Penalizes redundant publications from the same source
-        using a harmonic decay function.
-        3. Consensus Bonus: Amplifies the signal if multiple independent sources agree
-        on the sentiment direction.
-        4. Velocity Multiplier: Increases the impact if there is a sudden influx of
-        recent articles (breaking news).
-        5. Market Saturation: Flattens the final score into a [-1.0, 1.0] range using a
-        hyperbolic tangent (tanh) function.
+        Dispatches to the model selected by ``Config["SEVERITY_MODEL"]``:
+        - ``"dcim"``     : the full Directional Confirmed Impact Model.
+        - ``"baseline"`` : a minimal time-decayed, source-weighted sentiment sum.
+        Both share these guards and output range, so they can be A/B'd against each
+        other without changing anything downstream. Falls back to a raw article count
+        if the columns the models need are absent.
 
         Args:
-            group (pd.DataFrame): A DataFrame containing the articles/topics related to
-            the instrument.
-                Must contain the following columns:
-                - 'date' (datetime): The publication timestamp of the article.
-                - 'source_name' (str): The name or identifier of the publisher
-                (e.g., 'Bloomberg', 'Reuters').
-                - 'sentiment' (float): The directional sentiment of the article,
-                typically ranging from -1.0 (highly negative) to 1.0 (highly positive).
-                - 'source_weight' (float): The credibility or influence weight of the
-                source, strictly in the range (0.0, 1.0].
+            group (pd.DataFrame): The articles/topics mapped to one instrument. Needs
+            'date', 'source_name', 'sentiment' and 'source_weight' columns.
 
         Returns:
-            float: The final instrument severity score, bounded between -1.0 and 1.0.
-                - Values near -1.0 indicate a strong negative (bearish) consensus.
-                - Values near  0.0 indicate neutral sentiment, conflicting signals,
-                or market noise.
-                - Values near +1.0 indicate a strong positive (bullish) consensus.
-
-        Raises:
-            ValueError: If the input `group` DataFrame is missing any of the
-            required columns.
-
-        Notes:
-            The method relies on several class-level hyperparameters prefixed with
-            `DCIM_` (e.g., `DCIM_HALF_LIFE_HOURS`,
-            `DCIM_BETA_PENALTY`) to calibrate the model's sensitivity. It also attempts
-            to dynamically resolve the reference
-            time via `self.current_time` to calculate the exact age of the articles.
+            float: Severity in [-1.0, 1.0] (negative = bearish, ~0 = neutral/conflict,
+            positive = bullish).
         """
         if group.empty:
             return 0.0
@@ -266,11 +271,59 @@ class UpperPathAnalyzer(BaseAnalyzer):
         required_cols = ["date", "source_name", "sentiment", "source_weight"]
         if not all(col in group.columns for col in required_cols):
             print(
-                "[WARNING] Missing DCIM required columns."
-                + "Using simple article counter instead"
+                "[WARNING] Missing severity columns. "
+                "Using simple article counter instead"
             )
             return float(len(group))
 
+        if Config.get("SEVERITY_MODEL", "dcim") == "baseline":
+            return self._severity_baseline(group)
+        return self._severity_dcim(group)
+
+    def _severity_baseline(self, group: pd.DataFrame) -> float:
+        """
+        Minimal control model for instrument severity.
+
+        Sums each article's ``source_weight * sentiment``, time-decayed by the same
+        half-life as the DCIM, then squashes with tanh. Deliberately omits the echo,
+        consensus and velocity terms — this is the simplest defensible severity, kept
+        so the full DCIM can be measured against a baseline once evaluation exists.
+
+        Args:
+            group (pd.DataFrame): The articles/topics mapped to one instrument.
+
+        Returns:
+            float: Severity in [-1.0, 1.0].
+        """
+        time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
+        time_diffs = np.maximum(time_diffs, 0.0)
+
+        decay_constant = np.log(2) / Config["DCIM_HALF_LIFE_HOURS"]
+        decay_factors = np.exp(-decay_constant * time_diffs)
+
+        raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
+        total_impact = float(raw_impacts.sum())
+        severity = math.tanh(Config["DCIM_KAPPA_SCALE"] * total_impact)
+        return float(np.clip(severity, -1.0, 1.0))
+
+    def _severity_dcim(self, group: pd.DataFrame) -> float:
+        """
+        Directional Confirmed Impact Model (DCIM) severity for one instrument.
+
+        Processes the group through five stages: (1) exponential time decay,
+        (2) echo-chamber penalty for repeated publications from one source,
+        (3) consensus bonus when independent sources agree, (4) velocity multiplier
+        for breaking-news spikes, and (5) a tanh squash into [-1.0, 1.0]. Tuned by the
+        ``DCIM_*`` hyperparameters in Config. Assumes the required columns are present
+        (checked by the dispatcher) and uses ``self.current_time`` as the reference
+        time for article age.
+
+        Args:
+            group (pd.DataFrame): The articles/topics mapped to one instrument.
+
+        Returns:
+            float: Severity in [-1.0, 1.0].
+        """
         # PHASE 1 - influence of a single article
         time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
         time_diffs = np.maximum(time_diffs, 0.0)
@@ -341,8 +394,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
             instrument (str): The ticker symbol of the financial instrument.
             group (pd.DataFrame): A DataFrame containing the topics related to
             the instrument.
-            severity (float): A calculated severity score based on the number of
-            related topics.
+            severity (float): The signed DCIM severity in [-1.0, 1.0] computed by
+            :meth:`_calculate_instrument_severity` (passed through to the output).
 
         Returns:
             dict: A dictionary containing the trend information, including a unique

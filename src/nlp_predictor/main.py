@@ -1,20 +1,23 @@
 """
-End-to-end MVP pipeline (3/4 of the system):
+End-to-end pipeline.
 
-    Grupa 1 (dummy articles)  ->  Grupa 2 (topic extraction)  ->  Grupa 3 (upper path)
-                                                              \\->  Grupa 4 (lower path)
+    Grupa 1 (dummy articles) -> Grupa 2 (topic extraction) -> Grupa 3 (upper path)
+                                                           -> Grupa 4 (lower path)
+    Grupa 3 + Grupa 4 -> final signal (UP / DOWN / NEUTRAL + confidence)
 
 Grupa 1 (scraping & preprocessing) is mocked here with the sample article table; the
-remaining three stages run for real. The final signal-generation layer is out of scope
-for the MVP.
+remaining stages run for real. The final stage fuses both paths into one actionable
+per-instrument trading signal.
 """
 
 import pandas as pd
 from dotenv import load_dotenv
 
+from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.signal_generator import SignalGenerator
 from nlp_predictor.TopicExtractor import TopicExtractor
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
@@ -46,12 +49,12 @@ def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
 def main() -> None:
     """Run the dummy-articles -> topics -> upper/lower trends pipeline."""
     # ------------------------------------------------------------------ Grupa 1
-    print("====== [1/4] Loading articles (Grupa 1 mock) ======")
+    print("====== [1/5] Loading articles (Grupa 1 mock) ======")
     articles_df = pd.read_csv(Config["ARTICLES_PATH"])
     print(f"[INFO] Loaded {len(articles_df)} articles.")
 
     # ------------------------------------------------------------------ Grupa 2
-    print("\n====== [2/4] Extracting topics (Grupa 2) ======")
+    print("\n====== [2/5] Extracting topics (Grupa 2) ======")
     extractor = TopicExtractor()
     topics_df = extractor.extract_topics(articles_df)
     topics_df.to_csv(Config["TOPICS_SAVE_PATH_CSV"], index=False)
@@ -63,7 +66,7 @@ def main() -> None:
 
     # ------------------------------------------------------------- Grupa 3 & 4
     # Both paths receive the SAME topics table and run independently.
-    print("\n====== [3/4] Upper path - instrument trends (Grupa 3) ======")
+    print("\n====== [3/5] Upper path - instrument trends (Grupa 3) ======")
     upper = UpperPathAnalyzer(Config["INSTRUMENT_PATH"])
     instrument_trends = upper.process_data(_enrich_topics_for_upper_path(topics_df))
     UpperPathAnalyzer.save_trends(
@@ -72,7 +75,7 @@ def main() -> None:
     instrument_trends.to_csv(Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"], index=False)
     print(f"[INFO] Generated {len(instrument_trends)} instrument trends.")
 
-    print("\n====== [4/4] Lower path - global trends (Grupa 4) ======")
+    print("\n====== [4/5] Lower path - global trends (Grupa 4) ======")
     lower = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
     global_trends = lower.process_data(topics_df.copy())
     LowerPathAnalyzer.save_trends(
@@ -80,6 +83,23 @@ def main() -> None:
     )
     global_trends.to_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"], index=False)
     print(f"[INFO] Generated {len(global_trends)} global trends.")
+
+    # ------------------------------------------------------- Final signal layer
+    # Fuse the two paths: instrument severity sets direction, macro narrative
+    # modulates confidence. Produces the system's actionable output.
+    print("\n====== [5/5] Final signal generation ======")
+    signals = SignalGenerator().generate(instrument_trends, global_trends)
+    BaseAnalyzer.save_trends(signals, Config["SIGNALS_SAVE_PATH_PARQUET"])
+    signals.to_csv(Config["SIGNALS_SAVE_PATH_CSV"], index=False)
+
+    if not signals.empty:
+        actionable = signals[signals["signal"] != "NEUTRAL"]
+        print(
+            f"[INFO] {len(actionable)} actionable signal(s) "
+            f"out of {len(signals)} instruments. Top calls:"
+        )
+        preview_cols = ["instrument", "signal", "confidence", "macro_context"]
+        print(signals[preview_cols].head(10).to_string(index=False))
 
     print("\n====== Pipeline complete ======")
 

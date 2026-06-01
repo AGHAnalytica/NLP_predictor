@@ -14,6 +14,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from nlp_predictor.config import Config
+
 T = TypeVar("T")
 R = TypeVar("R")
 
@@ -76,7 +78,7 @@ class BaseAnalyzer(ABC):
 
         """
         response = self.client.beta.chat.completions.parse(
-            model="gpt-5-nano",
+            model=str(Config["LLM_MODEL"]),
             messages=[
                 {"role": "user", "content": prompt},
             ],

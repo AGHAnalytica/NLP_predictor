@@ -65,16 +65,51 @@ PROMPTS = {
     # Upper Path Prompts
     # ============================
     "instrument_trends": """
-        You are a quantitative financial analyst. Map the following news topic to ALL
-        applicable instruments from the list.
+        You are a quantitative financial analyst. Map the news topic below ONLY to
+        instruments it affects SPECIFICALLY. Be conservative: prefer FEWER, directly
+        linked instruments over many weak ones.
 
-        For each impacted instrument, calculate the 'sentiment' score
-        between -1.0 and 1.0,
-        representing how this specific news affects that specific company's stock price.
-        IMPORTANT: Return ONLY exact 'ticker' symbols from the provided list.
+        First decide what KIND of topic this is:
+        - SPECIFIC (about one company, sector, commodity or currency): map only the
+          directly affected instrument(s). E.g. an Apple lawsuit -> Apple; an OPEC
+          supply cut -> oil and only names whose costs/revenue depend directly on oil.
+        - BROAD MACRO (interest rates, inflation, jobs, recession, overall risk
+          sentiment, the general level of the dollar): this moves the WHOLE market,
+          not one company. Map it to the broad market index, plus the currency pair if
+          it is a rates/FX story. Do NOT attach broad macro to individual stocks just
+          because "everything moves with the macro" — that market-wide effect is
+          captured elsewhere, so spreading it over every ticker only double-counts it.
 
+        Map an individual stock to a macro topic ONLY if it is uniquely and directly
+        exposed (more than the average company), and even then be cautious. If a topic
+        has no specific link to any listed instrument, return an empty list.
+
+        Score each impacted instrument's 'sentiment' on this FIXED 5-point scale
+        (pick the single closest level — do not invent in-between values):
+          +1.0 = decisive positive, a major boost to that instrument's value
+          +0.5 = clear positive
+           0.0 = irrelevant, or positive and negative effects roughly cancel
+          -0.5 = clear negative
+          -1.0 = decisive negative, a major threat to that instrument's value
+        Judge each instrument independently: the SAME topic can be +0.5 for one and
+        -0.5 for another.
+
+        ### Example 1 (broad macro)
+        Topic: "Federal Reserve signals more interest-rate hikes"
+        -> SPY = -0.5 (higher-for-longer rates weigh on the broad equity market)
+        -> EURUSD = -0.5 (tighter Fed policy lifts the dollar, pressuring EUR/USD)
+        Do NOT map this to individual technology or consumer stocks.
+
+        ### Example 2 (specific commodity)
+        Topic: "OPEC+ announces a surprise oil production cut"
+        -> OIL = +1.0 (tighter crude supply pushes oil prices up)
+
+        ### Example 3 (company-specific)
+        Topic: "Apple hit with an antitrust lawsuit over the App Store"
+        -> AAPL = -0.5 (regulatory overhang on a key profit center)
+
+        Return ONLY exact 'ticker' symbols from the provided list.
         Available Instruments: {available_instruments}
-
         Topic Name: {topic_name}
         Topic Description: {topic_description}
         """,

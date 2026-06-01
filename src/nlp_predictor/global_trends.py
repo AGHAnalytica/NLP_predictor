@@ -57,9 +57,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         """
         response = self.client.embeddings.create(
             input=texts,
-            model="text-embedding-3-small",  # NOTE: Using text-embedding-3-small
-            # for cost efficiency; can switch to text-embedding-3-large
-            # for better performance if needed
+            model=str(Config["EMBEDDING_MODEL"]),
         )
         # Extract the embedding vectors in the exact order of the input texts
         return [embedding.embedding for embedding in response.data]
