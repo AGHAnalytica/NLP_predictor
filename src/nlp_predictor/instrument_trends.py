@@ -114,7 +114,12 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
 
-        topics_df["impacts"] = topics_df.apply(self._map_topic_to_instrument, axis=1)
+        # Each topic maps independently, so fan the LLM calls out concurrently.
+        topic_rows = [row for _, row in topics_df.iterrows()]
+        topics_df = topics_df.copy()
+        topics_df["impacts"] = self._parallel_map(
+            self._map_topic_to_instrument, topic_rows
+        )
 
         exploded_df = topics_df.explode("impacts")
         exploded_df = exploded_df.dropna(subset=["impacts"])
@@ -136,12 +141,17 @@ class UpperPathAnalyzer(BaseAnalyzer):
         mapped_df["instrument"] = mapped_df["instrument"].astype(str)
         mapped_df["sentiment"] = mapped_df["sentiment"].astype(float)
 
-        results = []
         print("[INFO] Generating trends per instrument using the DCIM model...")
-        for instrument, group in mapped_df.groupby("instrument"):
+
+        def _trend_for_instrument(item: tuple[str, pd.DataFrame]) -> dict:
+            instrument, group = item
             severity = self._calculate_instrument_severity(group)
-            trend_data = self._generate_instrument_trend(instrument, group, severity)
-            results.append(trend_data)
+            return self._generate_instrument_trend(instrument, group, severity)
+
+        # Severity is local; only the trend-summary LLM call benefits from threading.
+        results = self._parallel_map(
+            _trend_for_instrument, list(mapped_df.groupby("instrument"))
+        )
 
         return pd.DataFrame(results)
 

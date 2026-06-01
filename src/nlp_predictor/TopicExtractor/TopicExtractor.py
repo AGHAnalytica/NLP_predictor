@@ -89,26 +89,29 @@ class TopicExtractor(BaseAnalyzer):
             return pd.DataFrame(columns=self.OUTPUT_COLUMNS)
 
         date_col = self._resolve_date_column(articles_df)
+        articles = [article for _, article in articles_df.iterrows()]
 
-        rows: list[dict] = []
-        total = len(articles_df)
-        for position, (_, article) in enumerate(articles_df.iterrows(), start=1):
-            title = str(article.get("title", "")).strip()
-            print(f"[INFO] ({position}/{total}) Extracting topics from: {title[:60]}")
+        # Each article is independent, so fan the LLM calls out concurrently.
+        per_article_rows = self._parallel_map(
+            lambda article: self._article_to_rows(article, date_col), articles
+        )
+        rows = [row for article_rows in per_article_rows for row in article_rows]
 
-            for topic in self._extract_from_article(article):
-                rows.append(
-                    {
-                        "topic_id": str(uuid.uuid4()),
-                        "doc_hash": article.get("doc_hash"),
-                        "topic_name": topic.name,
-                        "topic_description": topic.description,
-                        "date": article.get(date_col) if date_col else None,
-                    }
-                )
-
-        print(f"[INFO] Extracted {len(rows)} topics from {total} articles.")
+        print(f"[INFO] Extracted {len(rows)} topics from {len(articles)} articles.")
         return pd.DataFrame(rows, columns=self.OUTPUT_COLUMNS)
+
+    def _article_to_rows(self, article: pd.Series, date_col: str | None) -> list[dict]:
+        """Extract one article's topics and shape them into topics-table rows."""
+        return [
+            {
+                "topic_id": str(uuid.uuid4()),
+                "doc_hash": article.get("doc_hash"),
+                "topic_name": topic.name,
+                "topic_description": topic.description,
+                "date": article.get(date_col) if date_col else None,
+            }
+            for topic in self._extract_from_article(article)
+        ]
 
     def _resolve_date_column(self, articles_df: pd.DataFrame) -> str | None:
         """Pick the first available date-like column from the article schema."""
@@ -135,6 +138,7 @@ class TopicExtractor(BaseAnalyzer):
         if not title and not content:
             return []
 
+        print(f"[INFO] Extracting topics from: {title[:60]}")
         prompt = PROMPTS["topic_extraction"].format(title=title, content=content)
 
         try:

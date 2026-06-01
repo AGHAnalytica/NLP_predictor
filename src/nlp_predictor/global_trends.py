@@ -2,6 +2,7 @@
 import os
 import uuid
 from datetime import UTC, datetime
+from typing import cast
 
 import fastparquet  # noqa: F401
 import numpy as np
@@ -136,20 +137,20 @@ class LowerPathAnalyzer(BaseAnalyzer):
             )
             return pd.DataFrame()
 
-        results = []
         print("[INFO] Generating macro trends per cluster...")
 
-        # 5. Group by clusters and generate a macro trend summary for each cluster group
+        # 5. Severity is local/cheap, so filter clusters above the threshold first,
+        # then generate each macro summary concurrently (one LLM call per cluster).
+        candidates: list[tuple[int, pd.DataFrame, float]] = []
         for cluster_id, group in clustered_df.groupby("cluster_id"):
+            group = cast(pd.DataFrame, group)
             severity = self._calculate_severity(group)
-            # Skip clusters that are too small
             if severity >= Config["SEVERITY_THRESHOLD"]:
-                trend_data = self._generate_global_trend_summary(
-                    cluster_id,
-                    group,
-                    severity,
-                )
-                results.append(trend_data)
+                candidates.append((int(cluster_id), group, severity))
+
+        results = self._parallel_map(
+            lambda item: self._generate_global_trend_summary(*item), candidates
+        )
         return pd.DataFrame(results)
 
     def _generate_global_trend_summary(

@@ -1,5 +1,8 @@
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from typing import TypeVar
 
 import pandas as pd
 from openai import OpenAI, RateLimitError
@@ -10,6 +13,9 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 class BaseAnalyzer(ABC):
@@ -30,6 +36,12 @@ class BaseAnalyzer(ABC):
     specific columns (e.g., 'embedding') for processing, which should be handled by the
     subclasses.
     """
+
+    # Max concurrent in-flight OpenAI requests for independent per-item calls.
+    # These calls are I/O-bound, so threads (which release the GIL during network
+    # I/O) give near-linear speedup; the sync OpenAI client is thread-safe. Higher
+    # values are faster but more likely to hit rate limits (handled by the retry).
+    MAX_WORKERS = 8
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -71,6 +83,28 @@ class BaseAnalyzer(ABC):
             response_format=schema,
         )
         return response.choices[0].message.parsed  # type: ignore
+
+    def _parallel_map(self, fn: Callable[[T], R], items: Sequence[T]) -> list[R]:
+        """
+        Run ``fn`` over ``items`` concurrently, returning results in input order.
+
+        Used to fan out independent LLM calls (e.g. one per article, topic or
+        cluster) instead of issuing them serially. Concurrency is capped at
+        :attr:`MAX_WORKERS`; the per-call rate-limit retry still applies inside
+        ``fn``. ``fn`` should handle its own errors and return a safe default, so a
+        single failing item does not abort the whole batch.
+
+        Args:
+            fn (Callable): Function applied to each item (typically wraps one API call).
+            items (Sequence): The items to process.
+
+        Returns:
+            list: Results aligned 1:1 with ``items``.
+        """
+        if not items:
+            return []
+        with ThreadPoolExecutor(max_workers=min(self.MAX_WORKERS, len(items))) as ex:
+            return list(ex.map(fn, items))
 
     @staticmethod
     def save_trends(result_df: pd.DataFrame, output_path: str):
