@@ -61,7 +61,7 @@ Config = {
     # [Scale] The base scaling factor applied before flattening the final score
     # with a tanh function. Higher value pushes the severity score towards -1.0 or 1.0
     # faster.
-    "DCIM_KAPPA_SCALE": 2.0,
+    "DCIM_KAPPA_SCALE": 1.0,
     # [Velocity Window] The maximum age (in hours) an article can be to be considered
     # "breaking/recent" for the velocity calculation.
     "DCIM_RECENT_WINDOW_HOURS": 0.5,

@@ -9,10 +9,21 @@ PROMPTS = {
         and EXTRACT the distinct market-relevant topics it reports. You are an
         extractor, not a trading advisor.
 
-        A topic is a specific, self-contained event or phenomenon
+        A topic is a specific, self-contained MARKET-MOVING EVENT
         (e.g. "Strait of Hormuz Reopening", "Federal Reserve Rate Cut Expectations",
         "UK Windfall Tax Extension"). A topic is NOT a person's name, a journalist,
-        or a news outlet. Merge near-duplicate mentions into a single topic.
+        or a news outlet.
+
+        Granularity rules:
+        - Extract distinct EVENTS, not their sub-facts. Do NOT split one event into its
+          individual details, consequences, or the market's reaction to it — fold those
+          into the single parent topic. For example: an earnings report is ONE topic,
+          not separate topics for revenue, margins, dividend and demand; a supply-chain
+          disruption is ONE topic, not separate topics for port congestion, freight
+          rates and input costs.
+        - Merge near-duplicate mentions into a single topic.
+        - For a typical single-story article return 1-3 topics; only return more if the
+          article genuinely covers several independent events.
         If the article reports no market-relevant event, return an empty list.
 
         For each topic return:
