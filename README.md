@@ -149,7 +149,7 @@ Open the **`index.html`** file from that directory in any web browser to view th
 ## 🧑‍💻 Contributors
 | Name | GitHub | Role |
 | :--- | :--- | :--- |
-| **Norbert Jarzmik** | [![GitHub](https://img.shields.io/badge/-njarzmik-181717?style=flat&logo=github)](https://github.com/njarzmik) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)]() | Team Leader / Researcher / Python Developer|
+| **Norbert Jarzmik** | [![GitHub](https://img.shields.io/badge/-njarzmik-181717?style=flat&logo=github)](https://github.com/njarzmik) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://pl.linkedin.com/in/norbert-jarzmik-38802431b) | Team Leader / Researcher / Python Developer|
 | **Konrad Zatorski** | [![GitHub](https://img.shields.io/badge/-K0D1Z-181717?style=flat&logo=github)](https://github.com/K0D1Z) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/konrad-zatorski/) | Python Developer / Researcher / Upper & Lower Path Developer|
 | **Rafał Mazur** | [![GitHub](https://img.shields.io/badge/-Rafek731-181717?style=flat&logo=github)](https://github.com/Rafek731) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)]()| Python Developer / Researcher|
 | **Filip Wojtczak** | [![GitHub](https://img.shields.io/badge/-imnotbruhwe-181717?style=flat&logo=github)](https://github.com/imnotbruhwe) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/filip-wojtczak/)| Python Developer / Researcher / Scrapper Developer|
