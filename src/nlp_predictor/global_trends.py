@@ -1,5 +1,4 @@
 # Core imports
-import os
 import uuid
 from datetime import UTC, datetime
 from typing import cast

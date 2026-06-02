@@ -88,7 +88,7 @@ PROMPTS = {
         (pick the single closest level — do not invent in-between values):
           +1.0 = decisive positive, a major boost to that instrument's value
           +0.5 = clear positive
-           0.0 = irrelevant, or positive and negative effects roughly cancel
+          0.0 = irrelevant, or positive and negative effects roughly cancel
           -0.5 = clear negative
           -1.0 = decisive negative, a major threat to that instrument's value
         Judge each instrument independently: the SAME topic can be +0.5 for one and

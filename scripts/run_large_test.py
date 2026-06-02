@@ -19,7 +19,7 @@ from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.main import _enrich_topics_for_upper_path
 from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.TopicExtractor import TopicExtractor
+from nlp_predictor.topic_extractor import TopicExtractor
 
 load_dotenv(override=True)
 

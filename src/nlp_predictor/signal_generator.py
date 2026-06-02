@@ -7,13 +7,13 @@ Fuses the two analysis paths into one actionable, per-instrument trading signal
 
 The design idea (why there are two paths at all):
 - The UPPER path says how this *specific* instrument's news nets out — a signed
-  severity in [-1, 1]. That is the source of truth for *direction*.
+severity in [-1, 1]. That is the source of truth for *direction*.
 - The LOWER path says what the *macro* narrative is doing. It does not set the
-  direction; it *modulates confidence*. A single-instrument call that rides a matching
-  macro narrative is more trustworthy; one that fights the macro tape is less, and a
-  weak contrarian call can be vetoed down to NEUTRAL.
+direction; it *modulates confidence*. A single-instrument call that rides a matching
+macro narrative is more trustworthy; one that fights the macro tape is less, and a
+weak contrarian call can be vetoed down to NEUTRAL.
 - The two paths are linked by the ``topic_ids`` they share: a macro trend is relevant
-  to an instrument only insofar as it is built from the same underlying news.
+to an instrument only insofar as it is built from the same underlying news.
 
 This layer is deliberately DETERMINISTIC (no LLM). The semantic work was already done
 upstream (sentiment, directions, summaries), so the final fusion should be transparent,
@@ -116,9 +116,7 @@ class SignalGenerator:
         print(f"[INFO] Generated {len(result)} instrument signals.")
         return result
 
-    def _build_macro_index(
-        self, global_trends_df: pd.DataFrame | None
-    ) -> list[dict]:
+    def _build_macro_index(self, global_trends_df: pd.DataFrame | None) -> list[dict]:
         """
         Pre-digest the macro trends into ``{topic_ids: set, direction, title}`` records
         so each instrument can be matched against them by shared topics.
@@ -167,8 +165,10 @@ class SignalGenerator:
                 m_dir = macro["direction"]
                 if m_dir == direction and coverage > agree_cov:
                     agree_cov, agree_title = coverage, macro["title"]
-                elif m_dir in ("up", "down") and m_dir != direction and (
-                    coverage > conflict_cov
+                elif (
+                    m_dir in ("up", "down")
+                    and m_dir != direction
+                    and (coverage > conflict_cov)
                 ):
                     conflict_cov, conflict_title = coverage, macro["title"]
 
@@ -187,9 +187,7 @@ class SignalGenerator:
         llm_direction = str(row.get("direction", "neutral")).lower()
 
         # Direction comes from the quantitative severity sign (the source of truth).
-        sev_direction = (
-            "up" if severity > 0 else "down" if severity < 0 else "neutral"
-        )
+        sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
 
         # 1) Base confidence is just |severity|. The DCIM already folds article
         #    volume, source weight, consensus and recency into that magnitude, so

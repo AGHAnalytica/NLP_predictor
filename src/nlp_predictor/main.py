@@ -1,8 +1,8 @@
 """
 End-to-end pipeline.
 
-    Grupa 1 (dummy articles) -> Grupa 2 (topic extraction) -> Grupa 3 (upper path)
-                                                           -> Grupa 4 (lower path)
+    Grupa 1 (dummy articles) -> Grupa 2 (topic extraction)  -> Grupa 3 (upper path)
+                                                            -> Grupa 4 (lower path)
     Grupa 3 + Grupa 4 -> final signal (UP / DOWN / NEUTRAL + confidence)
 
 Grupa 1 (scraping & preprocessing) is mocked here with the sample article table; the
@@ -18,7 +18,7 @@ from nlp_predictor.config import Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.TopicExtractor import TopicExtractor
+from nlp_predictor.topic_extractor import TopicExtractor
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
