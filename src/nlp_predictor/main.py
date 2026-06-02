@@ -1,5 +1,5 @@
 """
-End-to-end pipeline.
+End-to-end pipeline::
 
     Grupa 1 (dummy articles) -> Grupa 2 (topic extraction)  -> Grupa 3 (upper path)
                                                             -> Grupa 4 (lower path)

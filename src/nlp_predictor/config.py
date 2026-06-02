@@ -1,3 +1,44 @@
+"""
+Main configuration module for the NLP Predictor pipeline.
+
+This module defines the global ``Config`` dictionary, which serves as the central
+control point for the entire application. It contains input/output file paths,
+language model (LLM) configurations, and the core mathematical and logical
+hyperparameters driving the analysis process.
+
+The configuration is divided into five main operational sections:
+
+1. **LLM / EMBEDDING MODELS**:
+    Defines the models used for reasoning (chat model) and text vectorization
+    (embedding model) required by the Lower Path.
+
+2. **FILE PATHS**:
+    Dynamically generated absolute paths for test data files and output environments
+    (Parquet format is strictly enforced for downstream databases).
+
+3. **CLUSTERING PARAMETERS (Lower Path)**:
+    Hyperparameters for the HDBSCAN algorithm, used to capture broad, macroeconomic
+    narratives while filtering out isolated noise.
+
+4. **SEVERITY MODEL / DCIM (Upper Path)**:
+    Configuration and hyperparameters for the Directional Confirmed Impact Model (DCIM).
+    It modulates the strength of news impact on specific financial instruments,
+    accounting for: time half-life decay, "echo chamber" penalties, consensus bonuses,
+    velocity (breaking news spikes), and overall scaling.
+
+5. **SIGNAL GENERATION**:
+    Rules for the final fusion layer. Defines the minimum threshold to trigger
+    an active signal (neutral threshold) and how the macro environment (Lower Path)
+    modulates individual instrument signals (alignment bonuses, conflict penalties,
+    and hard vetos).
+
+Attributes:
+    BASE_DIR (Path): The root directory of the project (dynamically resolved
+        as two levels up from this file's location).
+    Config (dict): A dictionary containing all the aforementioned configuration
+        variables and hyperparameters.
+"""
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]

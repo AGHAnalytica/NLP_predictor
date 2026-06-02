@@ -1,5 +1,5 @@
-src
-===
+nlp_predictor
+=============
 
 .. toctree::
    :maxdepth: 4

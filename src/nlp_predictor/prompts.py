@@ -1,3 +1,36 @@
+"""
+Prompt templates module for the NLP Predictor pipeline.
+
+This module defines the global ``PROMPTS`` dictionary, containing the exact system
+instructions and few-shot examples sent to the OpenAI API (or compatible LLMs).
+These templates guide the language models at each distinct stage of
+the analysis pipeline.
+
+The prompts are organized into three primary operational stages:
+
+* **Topic Extraction (Grupa 2)**:
+  Instructs the LLM to act as a financial news extractor, parsing raw article
+  titles and content into discrete, market-moving events (topics). It enforces
+  strict granularity rules (avoiding sub-fact splitting) and filters out non-events
+  (like journalists' names).
+
+* **Instrument Trends (Upper Path / Grupa 3)**:
+  Instructs the LLM to act as a quantitative analyst, mapping previously extracted
+  topics to specific financial instruments. It enforces a strict distinction between
+  specific events (mapped to individual tickers) and broad macro events (mapped to
+  indexes/FX), preventing the double-counting of general market sentiment. It also
+  requires scoring the sentiment on a fixed discrete scale (-1.0 to +1.0).
+
+* **Global Trends (Lower Path / Grupa 4)**:
+  Instructs the LLM to act as a Chief Economist, synthesizing a mathematically
+  grouped cluster of semantically similar topics (from HDBSCAN) into a single,
+  coherent macroeconomic narrative, determining its broad market direction.
+
+Attributes:
+    PROMPTS (dict): A dictionary mapping pipeline stage names to their respective
+        multi-line string prompt templates.
+"""
+
 PROMPTS = {
     # These are the prompt templates for the OpenAI API calls, stored in a dictionary
     # for easy access.

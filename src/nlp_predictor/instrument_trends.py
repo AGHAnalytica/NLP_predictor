@@ -114,14 +114,14 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         Args:
             topics_df (pd.DataFrame): A DataFrame containing the topics with columns
-            such as 'topic_id', 'topic_name', 'topic_description', 'date',
-            'source_name', and 'source_weight'.
+                such as 'topic_id', 'topic_name', 'topic_description', 'date',
+                'source_name', and 'source_weight'.
 
         Returns:
             pd.DataFrame: A DataFrame containing the generated trends for each
-            instrument, including columns like 'trend_id', 'current_time',
-            'first_article_time', 'newest_article_time', 'instrument', 'title',
-            'description', 'severity', 'direction', and 'topic_ids'.
+                instrument, including columns like 'trend_id', 'current_time',
+                'first_article_time', 'newest_article_time', 'instrument', 'title',
+                'description', 'severity', 'direction', and 'topic_ids'.
         """
         if topics_df.empty:
             return pd.DataFrame()
