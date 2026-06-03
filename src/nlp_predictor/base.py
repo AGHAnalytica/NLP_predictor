@@ -25,7 +25,7 @@ class BaseScraper(ABC):
     rocess articles.
     """
 
-    def __init__(self, history_file: str = "data/scraped_history.parquet"):
+    def __init__(self, history_file: str = "data/scraping/scraped_history.parquet"):
         self.session = requests.Session()
         self.session.headers.update(
             {
