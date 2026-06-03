@@ -70,7 +70,6 @@ def main() -> None:
     # ------------------------------------------------------------------ Grupa 1
     print("====== [1/5] Scraping real articles (Grupa 1) ======")
 
-
     articles_df = run_real_scrapers()
 
     if articles_df.empty:

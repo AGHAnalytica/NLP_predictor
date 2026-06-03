@@ -41,12 +41,10 @@ def run_real_scrapers() -> pd.DataFrame:
         except Exception as e:
             logger.error(f"Critical error in {scraper.__class__.__name__}: {e}")
 
-
     if collected_dfs:
         final_df = pd.concat(collected_dfs, ignore_index=True)
         return final_df
 
-
     return pd.DataFrame(
-                    columns=["doc_hash", "source", "url", "date", "title", "content"]
-                    )
+        columns=["doc_hash", "source", "url", "date", "title", "content"]
+    )

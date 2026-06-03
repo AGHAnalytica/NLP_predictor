@@ -27,11 +27,13 @@ class BaseScraper(ABC):
 
     def __init__(self, history_file: str = "data/scraped_history.parquet"):
         self.session = requests.Session()
-        self.session.headers.update({
-            # change the email later
-            "User-Agent": "AGH_Analityca_scraper/1.0 (contact: wojtczakkf@gmail.com)",
-            "Accept-Language": "en-US,en;q=0.9"
-        })
+        self.session.headers.update(
+            {
+                # change the email later
+                "User-Agent": "AGH_Analityca_scraper/1.0 (contact: wojtczakkf@gmail.com)",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
         self.history_file = history_file
         self.history_df = self._load_history()
         self._cleanup_old_history()
@@ -41,12 +43,12 @@ class BaseScraper(ABC):
         if os.path.exists(self.history_file):
             try:
                 df = pd.read_parquet(self.history_file)
-                df['scraped_at'] = pd.to_datetime(df['scraped_at'], utc=True)
+                df["scraped_at"] = pd.to_datetime(df["scraped_at"], utc=True)
                 return df
             except Exception as e:
                 logger.error(
                     f"Error reading Parquet file: {e}. Creating new DataFrame."
-                    )
+                )
 
         return pd.DataFrame(columns=["doc_hash", "url", "scraped_at"])
 
@@ -70,7 +72,7 @@ class BaseScraper(ABC):
         cutoff_time = now - timedelta(hours=4)
 
         initial_len = len(self.history_df)
-        self.history_df = self.history_df[self.history_df['scraped_at'] >= cutoff_time]
+        self.history_df = self.history_df[self.history_df["scraped_at"] >= cutoff_time]
 
         if len(self.history_df) < initial_len:
             logger.info("Successfully cleaned up old historical duplicates from cache.")
@@ -92,9 +94,9 @@ class BaseScraper(ABC):
             return False
 
         is_hash_dup = (
-            self.history_df['doc_hash'] == doc_hash
-        ).any() if doc_hash else False
-        is_url_dup = (self.history_df['url'] == url).any() if url else False
+            (self.history_df["doc_hash"] == doc_hash).any() if doc_hash else False
+        )
+        is_url_dup = (self.history_df["url"] == url).any() if url else False
 
         return is_hash_dup or is_url_dup
 
@@ -110,11 +112,9 @@ class BaseScraper(ABC):
         Returns:
             None
         """
-        new_row = pd.DataFrame([{
-            "doc_hash": doc_hash,
-            "url": url,
-            "scraped_at": datetime.now(UTC)
-        }])
+        new_row = pd.DataFrame(
+            [{"doc_hash": doc_hash, "url": url, "scraped_at": datetime.now(UTC)}]
+        )
         self.history_df = pd.concat([self.history_df, new_row], ignore_index=True)
 
     def save_history(self) -> None:
@@ -151,8 +151,9 @@ class BaseScraper(ABC):
 
             if response.status_code in (403, 429):
                 logger.warning(
-                    f"Access blocked for {url} (Status: {response.status_code})." +
-                    " Pausing scraper.")
+                    f"Access blocked for {url} (Status: {response.status_code})."
+                    + " Pausing scraper."
+                )
                 return None
 
             response.raise_for_status()
@@ -208,7 +209,7 @@ class BaseScraper(ABC):
             "url": url,
             "date": formatted_date,
             "title": raw_title.strip(),
-            "content": content
+            "content": content,
         }
 
     @abstractmethod

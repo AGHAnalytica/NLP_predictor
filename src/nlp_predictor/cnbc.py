@@ -19,7 +19,7 @@ class CNBCScraper(BaseScraper):
 
         self.rss_feeds = [
             "https://www.cnbc.com/id/19836768/device/rss/rss.html",
-            "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+            "https://www.cnbc.com/id/10000664/device/rss/rss.html",
         ]
 
     def run(self) -> pd.DataFrame:
@@ -50,10 +50,10 @@ class CNBCScraper(BaseScraper):
             try:
                 root = ET.fromstring(rss_xml)
 
-                for item in root.findall('.//item'):
-                    raw_title = item.findtext('title')
-                    article_url = item.findtext('link')
-                    raw_date = item.findtext('pubDate')
+                for item in root.findall(".//item"):
+                    raw_title = item.findtext("title")
+                    article_url = item.findtext("link")
+                    raw_date = item.findtext("pubDate")
 
                     if not raw_title or not article_url or not raw_date:
                         continue
@@ -68,8 +68,8 @@ class CNBCScraper(BaseScraper):
 
                     if self.is_duplicate(doc_hash="", url=article_url):
                         logger.debug(
-                                f"Article already exists in DB (URL): {article_url}"
-                                )
+                            f"Article already exists in DB (URL): {article_url}"
+                        )
                         continue
 
                     logger.info(f"Fetching full content: {article_url}")
@@ -83,7 +83,7 @@ class CNBCScraper(BaseScraper):
                         url=article_url,
                         raw_title=raw_title,
                         raw_date=raw_date,
-                        raw_html=article_html
+                        raw_html=article_html,
                     )
 
                     if processed:
@@ -94,7 +94,6 @@ class CNBCScraper(BaseScraper):
 
         self.save_history()
         logger.info(f"CNBCScraper finished. Fetched {len(articles_data)} new articles.")
-
 
         expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 

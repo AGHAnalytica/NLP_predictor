@@ -19,10 +19,9 @@ class APNewsScraper(BaseScraper):
         super().__init__(history_file)
         self.base_url = "https://apnews.com"
 
-
         self.hub_urls = [
             "https://apnews.com/hub/business",
-            "https://apnews.com/hub/climate-and-environment"
+            "https://apnews.com/hub/climate-and-environment",
         ]
 
     def run(self) -> pd.DataFrame:
@@ -43,7 +42,6 @@ class APNewsScraper(BaseScraper):
         articles_data = []
         found_links = set()
 
-
         for hub_url in self.hub_urls:
             logger.info(f"Fetching AP News hub: {hub_url}")
             hub_html = self.fetch_html(hub_url)
@@ -51,20 +49,17 @@ class APNewsScraper(BaseScraper):
             if not hub_html:
                 continue
 
-            soup = BeautifulSoup(hub_html, 'html.parser')
+            soup = BeautifulSoup(hub_html, "html.parser")
 
-            for a_tag in soup.find_all('a', href=True):
-                href = str(a_tag['href'])
-                if '/article/' in href:
-
+            for a_tag in soup.find_all("a", href=True):
+                href = str(a_tag["href"])
+                if "/article/" in href:
                     full_url = urljoin(self.base_url, href)
                     found_links.add(full_url)
 
         logger.info(f"Found {len(found_links)} unique article links on AP News hubs.")
 
-
         for article_url in found_links:
-
             if self.is_duplicate(doc_hash="", url=article_url):
                 logger.debug(f"Article already exists in DB (URL): {article_url}")
                 continue
@@ -75,45 +70,43 @@ class APNewsScraper(BaseScraper):
             if not article_html:
                 continue
 
+            article_soup = BeautifulSoup(article_html, "html.parser")
 
-            article_soup = BeautifulSoup(article_html, 'html.parser')
-
-            title_tag = article_soup.find('meta', property='og:title')
+            title_tag = article_soup.find("meta", property="og:title")
             raw_title = (
-                str(title_tag['content'])
-                if title_tag and title_tag.has_attr('content')
+                str(title_tag["content"])
+                if title_tag and title_tag.has_attr("content")
                 else ""
             )
 
-            date_tag = article_soup.find('meta', property='article:published_time')
+            date_tag = article_soup.find("meta", property="article:published_time")
             raw_date = (
-                str(date_tag['content'])
-                if date_tag and date_tag.has_attr('content')
+                str(date_tag["content"])
+                if date_tag and date_tag.has_attr("content")
                 else ""
-                )
-
+            )
 
             if not raw_title or not raw_date:
-                logger.warning(f"Could not extract metadata for {article_url}. "+
-                            "Skipping.")
+                logger.warning(
+                    f"Could not extract metadata for {article_url}. " + "Skipping."
+                )
                 continue
-
 
             processed = self.process_article(
                 source="AP News",
                 url=article_url,
                 raw_title=raw_title,
                 raw_date=raw_date,
-                raw_html=article_html
+                raw_html=article_html,
             )
 
             if processed:
                 articles_data.append(processed)
 
-
         self.save_history()
-        logger.info(f"APNewsScraper finished. Fetched {len(articles_data)}" +
-                    " new articles.")
+        logger.info(
+            f"APNewsScraper finished. Fetched {len(articles_data)}" + " new articles."
+        )
 
         expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 

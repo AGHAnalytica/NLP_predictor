@@ -81,6 +81,7 @@ class SignalGenerator:
     top of this file. The other methods are helpers to keep the code organized and
     readable.
     """
+
     OUTPUT_COLUMNS = [
         "signal_id",
         "current_time",

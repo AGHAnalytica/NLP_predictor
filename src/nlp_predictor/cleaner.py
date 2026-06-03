@@ -25,14 +25,15 @@ def normalize_date_to_utc(raw_date_str: str) -> datetime | None:
     if not raw_date_str:
         return None
 
-    parsed_date = dateparser.parse(raw_date_str, settings={
-        'TIMEZONE': 'UTC', 'RETURN_AS_TIMEZONE_AWARE': True
-        })
+    parsed_date = dateparser.parse(
+        raw_date_str, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
+    )
 
     if parsed_date:
         return parsed_date.astimezone(UTC)
 
     return None
+
 
 def clean_html_content(raw_html: str) -> str:
     """
@@ -50,10 +51,8 @@ def clean_html_content(raw_html: str) -> str:
         return ""
     try:
         text = trafilatura.extract(
-                                    raw_html,
-                                    include_comments=False,
-                                    include_tables=False
-                                )
+            raw_html, include_comments=False, include_tables=False
+        )
     except Exception as e:
         logging.warning(f"Trafilatura error during extraaction: {e}")
         return ""
@@ -65,6 +64,7 @@ def clean_html_content(raw_html: str) -> str:
     clean_text = re.sub(r"\s+", " ", text).strip()
 
     return clean_text
+
 
 def is_valid_article(clean_text: str) -> bool:
     """
@@ -105,4 +105,4 @@ def generate_doc_hash(text: str) -> str:
     if not standardized_text:
         return ""
 
-    return hashlib.sha256(standardized_text.encode('utf-8')).hexdigest()
+    return hashlib.sha256(standardized_text.encode("utf-8")).hexdigest()

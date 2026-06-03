@@ -28,6 +28,7 @@ class ExtractedTopic(BaseModel):
     these topics per article, which are then fed into the upper and lower paths for
     further analysis and ultimately contribute to the final trading signal.
     """
+
     name: str = Field(
         description="Short, specific event/phenomenon name "
         "(e.g. 'Strait of Hormuz Reopening'). NOT a person or a news outlet."
@@ -51,6 +52,7 @@ class ExtractedTopics(BaseModel):
     extractor to focus solely on identifying and describing events, without making
     trading recommendations, which are handled in later stages of the pipeline.
     """
+
     topics: list[ExtractedTopic] = Field(
         description="Market-relevant topics found in the article. Empty if none."
     )
