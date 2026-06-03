@@ -19,6 +19,7 @@ from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.signal_generator import SignalGenerator
 from nlp_predictor.topic_extractor import TopicExtractor
+from nlp_predictor.scraper_runner import run_real_scrapers
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
@@ -47,11 +48,24 @@ def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    """Run the dummy-articles -> topics -> upper/lower trends pipeline."""
+    """Run the real articles -> topics -> upper/lower trends pipeline."""
     # ------------------------------------------------------------------ Grupa 1
-    print("====== [1/5] Loading articles (Grupa 1 mock) ======")
-    articles_df = pd.read_csv(Config["ARTICLES_PATH"])
-    print(f"[INFO] Loaded {len(articles_df)} articles.")
+    print("====== [1/5] Scraping real articles (Grupa 1) ======")
+
+
+    articles_df = run_real_scrapers()
+
+    if articles_df.empty:
+        print("[FATAL] No articles scraped today; cannot run the pipeline.")
+        return
+
+    # Naprawa konfliktu nazw dla Grupy 3 (source -> source_name)
+    if "source" in articles_df.columns:
+        articles_df.rename(columns={"source": "source_name"}, inplace=True)
+
+    print(f"[INFO] Scraped {len(articles_df)} real articles.")
+
+    articles_df.to_csv(Config["ARTICLES_PATH"], index=False)
 
     # ------------------------------------------------------------------ Grupa 2
     print("\n====== [2/5] Extracting topics (Grupa 2) ======")
