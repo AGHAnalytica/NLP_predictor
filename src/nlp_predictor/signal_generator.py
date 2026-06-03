@@ -45,9 +45,17 @@ from nlp_predictor.config import Config  # type: ignore
 def _as_id_list(value: object) -> list:
     """
     Coerce a ``topic_ids`` cell into a list.
-
     In-memory the column holds real lists; round-tripped through CSV it becomes a
     string like ``"['a', 'b']"``. This handles both, plus missing/NaN values.
+
+    Args:
+        value (object): The value to coerce, which can be a list, a string
+        representation of a list, or something else (e.g., NaN).
+    Returns:
+        list: A list of topic IDs. If the input is already a list, it is returned as is.
+        If the input is a string that can be parsed as a list, the parsed list is
+        returned. For any other input (including NaN), an empty list is returned.
+
     """
     if isinstance(value, list):
         return value
@@ -64,9 +72,15 @@ class SignalGenerator:
     """
     Combine the upper-path instrument trends and the lower-path macro trends into a
     final per-instrument signal. Pure aggregation — no external calls — so it is cheap
-    to run and easy to unit-test against synthetic frames.
+    to run and easy to unit-test against synthetic frames. The rationale field is a v
+    erbose, human-readable explanation of how the signal was reached, for auditability.
+    The macro modulation is designed to be interpretable and transparent, not a
+    black-box formula, so that the final signal can be easily traced back to its inputs.
+    The main method is ``generate()``, which takes the two input DataFrames and produces
+    the final signal DataFrame according to the contract described at the
+    top of this file. The other methods are helpers to keep the code organized and
+    readable.
     """
-
     OUTPUT_COLUMNS = [
         "signal_id",
         "current_time",
@@ -86,7 +100,7 @@ class SignalGenerator:
         global_trends_df: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
-        Produce the final signal table.
+        Produce the final signal table. The main entry point for this class.
 
         Args:
             instrument_trends_df (pd.DataFrame): Upper-path output. Needs
@@ -119,7 +133,27 @@ class SignalGenerator:
     def _build_macro_index(self, global_trends_df: pd.DataFrame | None) -> list[dict]:
         """
         Pre-digest the macro trends into ``{topic_ids: set, direction, title}`` records
-        so each instrument can be matched against them by shared topics.
+        so each instrument can be matched against them by shared topics. This also
+        gracefully handles the case where there are no macro trends (e.g., first-ever
+        run, or a failure in the lower path) by returning an empty index, which causes
+        the macro modulation step to be effectively skipped without errors. The index is
+        a list of dicts rather than a DataFrame for simplicity of use in the matching
+        step; we just need to iterate over the macro trends and check set intersections
+        with the instrument topics, so a list of dicts is straightforward and efficient
+        for that.
+
+        Args:
+            global_trends_df (pd.DataFrame | None): The DataFrame containing the macro
+            trends, which should have at least 'topic_ids', 'direction' and 'title'
+            columns. Can be None or empty, in which case an empty index is returned.
+
+        Returns:
+            list[dict]: A list of dictionaries, each representing a macro trend
+            with keys:
+            - 'topic_ids': a set of topic IDs associated with the macro trend
+            - 'direction': the direction of the macro trend ('up', 'down', 'neutral
+                etc.)
+            - 'title': the title of the macro trend for context
         """
         if global_trends_df is None or global_trends_df.empty:
             return []
@@ -150,8 +184,22 @@ class SignalGenerator:
         single dominant narrative on each side rather than summing, to avoid
         double-counting overlapping clusters).
 
+        Args:
+            instr_topics (set): The set of topic IDs associated with
+            the instrument trend.
+            direction (str): The direction of the instrument trend
+            ('up', 'down', 'neutral').
+            macro_index (list[dict]): The pre-digested macro index, where each dict has
+            'topic_ids', 'direction', and 'title' keys.
+
         Returns:
-            (agree_coverage, conflict_coverage, dominant_macro_title).
+            - agree_coverage (float): The highest coverage of any macro narrative that
+            agrees with the instrument's direction.
+            - conflict_coverage (float): The highest coverage of any macro narrative
+            that conflicts with the instrument's direction.
+            - dominant_macro_title (str): The title of the dominant macro narrative (the
+            one with the highest coverage, whether agreeing or conflicting),
+            for context.
         """
         agree_cov, agree_title = 0.0, ""
         conflict_cov, conflict_title = 0.0, ""
@@ -178,7 +226,32 @@ class SignalGenerator:
     def _signal_for_instrument(
         self, row: pd.Series, macro_index: list[dict], now: str
     ) -> dict:
-        """Turn one upper-path instrument trend into a final signal row."""
+        """
+        Turn one upper-path instrument trend into a final signal row.
+        The logic is as follows:
+        - Start with the severity sign for direction and magnitude for base confidence.
+        - Modulate confidence based on the macro alignment (coverage of shared topics
+        with macro narratives, and whether they agree or conflict).
+        - If the per-instrument summary's direction disagrees with the severity sign, it
+        is likely a noisy/conflicted case, so discount confidence and flag it in the
+        rationale.
+        - Apply gating rules: if severity is too weak, or if there is a strong macro
+        veto, set the signal to NEUTRAL and explain why in the rationale.
+        - Compose a human-readable rationale that explains the key factors behind the
+        signal, for auditability.
+
+        Args:
+            row (pd.Series): A row from the instrument trends DataFrame, which should
+            contain at least 'instrument', 'severity', 'direction' and 'topic_ids'
+            fields. macro_index (list[dict]): The pre-digested macro index
+            for alignment.
+            now (str): The current timestamp as a string, to be used in the signal
+            output for consistency.
+
+        Returns:
+            dict: A dictionary representing the signal for this instrument, with keys
+            corresponding to the OUTPUT_COLUMNS of the final signal DataFrame.
+        """
         instrument = str(row["instrument"])
         severity = float(row.get("severity", 0.0))
         strength = abs(severity)
@@ -284,7 +357,41 @@ class SignalGenerator:
         confidence: float,
         gate_reason: str,
     ) -> str:
-        """Compose a short, human-readable explanation of how the signal was reached."""
+        """
+        Compose a short, human-readable explanation of how the signal was reached.
+        This is crucial for auditability and trust in the system, allowing a human
+        to understand the key factors behind each signal and to reconstruct the logic if
+        needed. The rationale includes the severity and its strength, the number of
+        topics (as a proxy for signal robustness), the macro context (agreement or
+        conflict with macro narratives), and any internal conflicts or gating reasons.
+        The macro modulation is explained in terms of coverage of shared topics with
+        macro narratives, and the presence of a strong macro veto is explicitly called
+        out when it applies. The rationale is designed to be concise but informative,
+        giving a clear picture of why the system made the decision it did for each
+        instrument.
+
+        Args:
+            severity (float): The signed severity score from the upper path.
+            sev_direction (str): The direction implied by the severity ('up', 'down',
+            'neutral').
+            n_topics (int): The number of topics associated with this instrument trend.
+            macro_context (str): The macro context classification ('AGREE', 'CONFLICT',
+            'NONE').
+            macro_title (str): The title of the dominant macro narrative for context.
+            agree_cov (float): The coverage of agreeing macro narratives.
+            conflict_cov (float): The coverage of conflicting macro narratives.
+            internal_conflict (bool): Whether there was a conflict between the severity
+            sign and the LLM summary direction.
+            signal (str): The final discrete signal ('UP', 'DOWN', 'NEUTRAL').
+            confidence (float): The final confidence score in [0, 1].
+            gate_reason (str): If the signal was gated to NEUTRAL, the reason for the
+            gating.
+
+        Returns:
+            str: A human-readable rationale explaining how the signal was derived from
+            the inputs.
+
+        """
         strength = abs(severity)
         strength_word = (
             "strong" if strength >= 0.6 else "moderate" if strength >= 0.3 else "weak"

@@ -15,8 +15,19 @@ load_dotenv(override=True)
 
 # Pydantic schemas for strict, parseable LLM output
 class ExtractedTopic(BaseModel):
-    """A single market-relevant topic extracted from an article."""
-
+    """
+    A single market-relevant topic extracted from an article. The LLM is prompted to
+    find topics that are relevant for financial markets, so the ``topic_name``
+    should be a concise label for a specific event, phenomenon, or trend
+    (e.g. "Strait of Hormuz Reopening"), and the ``topic_description`` should be a brief
+    explanation of what the topic is about, based solely on the article's content.
+    The description may include a general note on market relevance or likely direction,
+    but it must NOT name specific financial instruments or give buy/sell advice, to
+    keep the topic extraction stage focused on identifying events rather than making
+    trading recommendations. The output contract for the topic extractor is a list of
+    these topics per article, which are then fed into the upper and lower paths for
+    further analysis and ultimately contribute to the final trading signal.
+    """
     name: str = Field(
         description="Short, specific event/phenomenon name "
         "(e.g. 'Strait of Hormuz Reopening'). NOT a person or a news outlet."
@@ -29,8 +40,17 @@ class ExtractedTopic(BaseModel):
 
 
 class ExtractedTopics(BaseModel):
-    """Container for the list of topics extracted from one article."""
-
+    """
+    Container for the list of topics extracted from one article. The LLM is prompted to
+    return a list of market-relevant topics, each with a name and description, and this
+    schema captures that structured output. The topic extractor's output contract is a
+    list of these topics per article, which are then fed into the upper and lower paths
+    for further analysis and ultimately contribute to the final trading signal.
+    If the article contains no market-relevant events, the LLM is prompted to return an
+    empty list, which is also valid output for this schema. This design allows the topic
+    extractor to focus solely on identifying and describing events, without making
+    trading recommendations, which are handled in later stages of the pipeline.
+    """
     topics: list[ExtractedTopic] = Field(
         description="Market-relevant topics found in the article. Empty if none."
     )
@@ -68,13 +88,40 @@ class TopicExtractor(BaseAnalyzer):
         """
         Pipeline entry point (BaseAnalyzer interface). Delegates to
         :meth:`extract_topics`. ``articles_df`` is the Grupa 1 output, not a topics
-        table, hence the dedicated alias for readability.
+        table, hence the dedicated alias for readability. The main logic is in
+        ``extract_topics()``, which iterates over the articles and calls
+        ``_extract_from_article()`` for each one to get its topics. The resulting
+        list of topics is then flattened and converted into a DataFrame with the
+        specified output columns. If the input DataFrame is empty, it
+        returns an empty topics DataFrame with the correct schema.
+
+        Args:
+            articles_df (pd.DataFrame): The DataFrame containing cleaned articles with
+            columns like 'doc_hash', 'title', 'content', and a date column.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the extracted topics with columns:
+            'topic_id', 'doc_hash', 'topic_name', 'topic_description', 'date
+            If the input DataFrame is empty, returns an empty DataFrame with these
+            columns.
+
         """
         return self.extract_topics(articles_df)
 
     def extract_topics(self, articles_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Iterate over every article and extract its topics.
+        Iterate over every article and extract its topics. The main logic is in
+        ``_extract_from_article()``, which calls the LLM for each article to get its
+        topics. The resulting list of topics is then flattened and converted into a
+        DataFrame with the specified output columns. If the input DataFrame is empty, it
+        returns an empty topics DataFrame with the correct schema. This method is
+        separate from the BaseAnalyzer interface to allow for more specific type
+        annotations and to keep the code organized and readable. The topic extraction
+        is done sequentially for simplicity, but it could be parallelized if needed,
+        since each article is independent. The LLM calls are wrapped in a retry
+        mechanism to handle transient failures, and any errors for individual articles
+        are logged and skipped to ensure that one bad article does not abort the whole
+        batch.
 
         Args:
             articles_df (pd.DataFrame): Grupa 1 output. Expected columns include
@@ -101,7 +148,34 @@ class TopicExtractor(BaseAnalyzer):
         return pd.DataFrame(rows, columns=self.OUTPUT_COLUMNS)
 
     def _article_to_rows(self, article: pd.Series, date_col: str | None) -> list[dict]:
-        """Extract one article's topics and shape them into topics-table rows."""
+        """
+        Extract one article's topics and shape them into topics-table rows.
+        The LLM is called to extract topics from the article, and the resulting list of
+        topics is transformed into a list of dictionaries, each representing a row in
+        the output topics DataFrame. Each row includes a unique topic_id, the doc_hash
+        to link back to the source article, the topic name and description from the LLM
+        output, and the date copied from the article using the specified date column.
+        If the date column is not found in the article, the date field in the output
+        will be None. This method is called for each article, and the results are
+        aggregated in the main extraction method. The LLM call is wrapped in a
+        retry mechanism, and any errors are logged and result in an empty list of
+        topics for that article, so one bad article does not abort the whole batch.
+        The output of this method is a list of dictionaries, which are then converted
+        into a DataFrame in the main extraction method. The doc_hash serves as a
+        foreign key to join back to the source article, and the date is included
+        for temporal context in later stages of the pipeline.
+
+        Args:
+            article (pd.Series): A single row from the articles DataFrame, containing
+            the article's metadata and content.
+            date_col (str | None): The name of the column in the article that contains
+            the publication date. If None, the date field in the output will be None.
+
+        Returns:
+            list[dict]: A list of dictionaries, each representing a topic extracted from
+            the article, with keys corresponding to the output columns of the topics
+            DataFrame.
+        """
         return [
             {
                 "topic_id": str(uuid.uuid4()),
@@ -114,7 +188,29 @@ class TopicExtractor(BaseAnalyzer):
         ]
 
     def _resolve_date_column(self, articles_df: pd.DataFrame) -> str | None:
-        """Pick the first available date-like column from the article schema."""
+        """
+        Pick the first available date-like column from the article schema.
+        The topic extractor needs a date for each topic to provide temporal context for
+        later stages of the pipeline. Since different scrapers might use different
+        column names for the publication date, this method checks for a predefined list
+        of common date column names (e.g. 'date', 'scrape_date', 'published_at')
+        and returns the first one it finds in the DataFrame. If none of the expected
+        date columns are found, it logs a warning and returns None, which will result
+        in the date field in the output topics being None. This is a fallback mechanism
+        to handle inconsistencies in the input data, but ideally, the scrapers should be
+        standardized to always include a date column with a consistent name.
+        The presence of a date is important for the temporal analysis of trends in later
+        stages, so it's recommended to ensure that the scrapers produce a date column
+        with one of the expected names.
+
+        Args:
+            articles_df (pd.DataFrame): The DataFrame containing the articles, expected
+            to have one of the date columns.
+
+        Returns:
+            str | None: The name of the date column found, or None if no date column
+            is found.
+        """
         for candidate in self._DATE_COLUMNS:
             if candidate in articles_df.columns:
                 return candidate
@@ -131,6 +227,15 @@ class TopicExtractor(BaseAnalyzer):
         Uses the whole article (title + full content) as context. Failures for an
         individual article are logged and skipped so one bad article does not abort
         the whole batch.
+
+        Args:
+            article (pd.Series): A single row from the articles DataFrame, containing
+            the article's metadata and content.
+
+        Returns:
+            list[ExtractedTopic]: A list of topics extracted from the article. If the
+            article contains no market-relevant events or if the LLM call fails, this
+            willbe an empty list.
         """
         title = str(article.get("title", "")).strip()
         content = str(article.get("content", "")).strip()

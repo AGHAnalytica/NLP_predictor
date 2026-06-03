@@ -1,9 +1,8 @@
 import logging
-import pandas as pd
-from typing import List, Dict, Any
 from urllib.parse import urljoin
-from bs4 import BeautifulSoup
 
+import pandas as pd
+from bs4 import BeautifulSoup  # type: ignore
 from src.nlp_predictor.base import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -30,6 +29,16 @@ class APNewsScraper(BaseScraper):
         """
         Main loop for AP News.
         Returns a Pandas DataFrame with new articles cleaned up.
+        If no new articles are found, returns an empty DataFrame with the correct
+        columns.
+        Articles are filtered for duplicates and media content before processing.
+        Fetches full HTML for each article to extract content and metadata, then passes
+        through the cleaner pipeline defined in process_article().
+
+        Returns:
+            pd.DataFrame: A DataFrame containing new articles with columns:
+            doc_hash, source, url, date, title, content. If no new articles are
+            found, returns an empty DataFrame with the correct columns.
         """
         articles_data = []
         found_links = set()
@@ -70,14 +79,23 @@ class APNewsScraper(BaseScraper):
             article_soup = BeautifulSoup(article_html, 'html.parser')
 
             title_tag = article_soup.find('meta', property='og:title')
-            raw_title = str(title_tag['content']) if title_tag and title_tag.has_attr('content') else ""
+            raw_title = (
+                str(title_tag['content'])
+                if title_tag and title_tag.has_attr('content')
+                else ""
+            )
 
             date_tag = article_soup.find('meta', property='article:published_time')
-            raw_date = str(date_tag['content']) if date_tag and date_tag.has_attr('content') else ""
+            raw_date = (
+                str(date_tag['content'])
+                if date_tag and date_tag.has_attr('content')
+                else ""
+                )
 
 
             if not raw_title or not raw_date:
-                logger.warning(f"Could not extract metadata for {article_url}. Skipping.")
+                logger.warning(f"Could not extract metadata for {article_url}. "+
+                            "Skipping.")
                 continue
 
 
@@ -94,7 +112,8 @@ class APNewsScraper(BaseScraper):
 
 
         self.save_history()
-        logger.info(f"APNewsScraper finished. Fetched {len(articles_data)} new articles.")
+        logger.info(f"APNewsScraper finished. Fetched {len(articles_data)}" +
+                    " new articles.")
 
         expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 

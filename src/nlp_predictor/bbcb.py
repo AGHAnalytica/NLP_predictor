@@ -1,8 +1,7 @@
-import xml.etree.ElementTree as ET
-from typing import List, Dict, Any
 import logging
-import pandas as pd
+import xml.etree.ElementTree as ET
 
+import pandas as pd
 from src.nlp_predictor.base import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,16 @@ class BBCScraper(BaseScraper):
     def run(self) -> pd.DataFrame:
         """
         Main loop for BBC.
-        Returns a Pandas DataFrame with new articles cleaned up.
+        Returns a Pandas DataFrame with new articles cleaned up. If no new articles are
+        found, returns an empty DataFrame with the correct columns.
+        Articles are filtered for duplicates and media content before processing.
+        Fetches full HTML for each article to extract content and metadata, then passes
+        through the cleaner pipeline defined in process_article().
+
+        Returns:
+            pd.DataFrame: A DataFrame containing new articles with columns:
+            doc_hash, source, url, date, title, content. If no new articles are
+            found, returns an empty DataFrame with the correct columns.
         """
         articles_data = []
 
@@ -61,7 +69,9 @@ class BBCScraper(BaseScraper):
 
 
                     if self.is_duplicate(doc_hash="", url=article_url):
-                        logger.debug(f"Article already exists in DB (URL): {article_url}")
+                        logger.debug(
+                            f"Article already exists in DB (URL): {article_url}"
+                        )
                         continue
 
                     logger.info(f"Fetching full content: {article_url}")

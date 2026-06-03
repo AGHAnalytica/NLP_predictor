@@ -17,9 +17,9 @@ from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.scraper_runner import run_real_scrapers
 from nlp_predictor.signal_generator import SignalGenerator
 from nlp_predictor.topic_extractor import TopicExtractor
-from nlp_predictor.scraper_runner import run_real_scrapers
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
@@ -33,6 +33,13 @@ def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
     (credibility of the publisher) and ``date`` (recency). Topics only carry
     ``doc_hash``, so we join back to the articles for the source, then to the source
     weights table, exactly as the upper-path module test does.
+
+    Args:
+        topics_df (pd.DataFrame): The DataFrame containing extracted topics with at
+        least a 'doc_hash' column.
+    Returns:
+        pd.DataFrame: An enriched DataFrame with the necessary columns for the
+        upper path.
     """
     articles_df = pd.read_csv(Config["ARTICLES_PATH"])[["doc_hash", "source_name"]]
     weights_df = pd.read_csv(Config["WEIGHTS_PATH"])[["source_name", "source_weight"]]
@@ -48,7 +55,18 @@ def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    """Run the real articles -> topics -> upper/lower trends pipeline."""
+    """
+    Run the real articles -> topics -> upper/lower trends pipeline.
+    Each stage saves its output to disk, both as a checkpoint and for later analysis.
+    The final signal generation stage fuses the upper and lower path outputs into a
+    single actionable signal per instrument, which is also saved to disk.
+    Logs key steps and outputs summary statistics at each stage for monitoring.
+    If any critical stage fails (e.g. no articles scraped, no topics extracted), the
+    pipeline aborts with an error message to prevent downstream errors.
+
+    Returns:
+        None
+    """
     # ------------------------------------------------------------------ Grupa 1
     print("====== [1/5] Scraping real articles (Grupa 1) ======")
 
@@ -59,7 +77,6 @@ def main() -> None:
         print("[FATAL] No articles scraped today; cannot run the pipeline.")
         return
 
-    # Naprawa konfliktu nazw dla Grupy 3 (source -> source_name)
     if "source" in articles_df.columns:
         articles_df.rename(columns={"source": "source_name"}, inplace=True)
 
