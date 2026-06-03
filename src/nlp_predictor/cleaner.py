@@ -4,7 +4,8 @@ from datetime import timezone, datetime
 import re
 import hashlib
 import unicodedata
-from bs4 import BeautifulSoup, FeatureNotFound
+import trafilatura
+import logging
 
 
 def normalize_date_to_utc(raw_date_str: str) -> Optional[datetime]:
@@ -16,83 +17,33 @@ def normalize_date_to_utc(raw_date_str: str) -> Optional[datetime]:
     if not raw_date_str:
         return None
 
-    parsed_date = dateparser.parse(
-        raw_date_str,
-        settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True},
-    )
+    parsed_date = dateparser.parse(raw_date_str, settings={'TIMEZONE': 'UTC', 'RETURN_AS_TIMEZONE_AWARE': True})
 
     if parsed_date:
         return parsed_date.astimezone(timezone.utc)
 
     return None
 
-
 def clean_html_content(raw_html: str) -> str:
     """
-    Extracts clean text from html file deleting all the trash
+    Extracts the main article text from raw HTML using trafilatura,
+    normalizes it, and cleans it.
     """
     if not raw_html or not isinstance(raw_html, str):
         return ""
-
     try:
-        soup = BeautifulSoup(raw_html, "lxml")
-    except FeatureNotFound:
-        soup = BeautifulSoup(raw_html, "html.parser")
-
-    tags_to_destroy = [
-        "script",
-        "style",
-        "nav",
-        "footer",
-        "header",
-        "aside",
-        "form",
-        "noscript",
-        "svg",
-        "canvas",
-        "video",
-        "audio",
-        "iframe",
-        "button",
-    ]
-    for tag in soup.find_all(tags_to_destroy):
-        tag.decompose()
-
-    trash_pattern = re.compile(
-        r"\b(sidebar|ads?|advert(?:isement)?|sponsor(?:ed)?|share|comments?|social|menu|modal|newsletter|popup|cookie|promo)\b",
-        re.I,
-    )
-
-    for element in soup.find_all(True):
-        attrs = element.attrs
-
-        class_id_str = " ".join(attrs.get("class", [])) + " " + str(attrs.get("id", ""))
-        if trash_pattern.search(class_id_str):
-            element.decompose()
-
-    text = "\n".join(soup.stripped_strings)
+        text = trafilatura.extract(raw_html, include_comments=False, include_tables=False)
+    except Exception as e:
+        logging.warning(f"Trafilatura error during extraaction: {e}")
+        return ""
+    if not text:
+        return ""
 
     text = unicodedata.normalize("NFKC", text)
-
-    boilerplate_patterns = [
-        r"(?:subscribe|join|sign up)\s+to\s+our\s+newsletter.*",
-        r"read\s+more[:\s].*",
-        r"click\s+here\s+(?:to|for).*",
-        r"©\s*\d{4}.*",
-        r"all\s+rights\s+reserved",
-        r"cookie\s+policy",
-        r"terms\s+of\s+(?:service|use)",
-    ]
-
-    combined_pattern = re.compile(
-        "|".join(boilerplate_patterns), re.IGNORECASE | re.MULTILINE
-    )
-    text = combined_pattern.sub("", text)
 
     clean_text = re.sub(r"\s+", " ", text).strip()
 
     return clean_text
-
 
 def is_valid_article(clean_text: str) -> bool:
     """
@@ -116,5 +67,7 @@ def generate_doc_hash(text: str) -> str:
         return ""
 
     standardized_text = re.sub(r"\W+", "", text.lower())
+    if not standardized_text:
+        return ""
 
-    return hashlib.sha256(standardized_text.encode("utf-8")).hexdigest()
+    return hashlib.sha256(standardized_text.encode('utf-8')).hexdigest()
