@@ -1,106 +1,94 @@
+import os
 import time
-import sqlite3
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta, timezone
 import requests
+import pandas as pd
 
-from src.nlp_predictor.data_prep.cleaner import (
+from src.nlp_predictor.cleaner import (
     clean_html_content,
     is_valid_article,
     generate_doc_hash,
     normalize_date_to_utc
 )
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class BaseScraper(ABC):
     """
     Base class for all news scrapers.
-    Provides a shared HTTP session, request limits, headers, and database deduplication.
+    Provides a shared HTTP session, request limits, headers, and Parquet-based deduplication.
     """
 
-    def __init__(self, db_path: str = "data/scraped_history.db"):
+    def __init__(self, history_file: str = "data/scraped_history.parquet"):
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": "ANALScraper/1.0 (contact: wojtczakkf@gmail.com)",
+            "User-Agent": "AGH_Analityca_scraper/1.0 (contact: wojtczakkf@gmail.com)", # change the email later
             "Accept-Language": "en-US,en;q=0.9"
         })
-        self.db_path = db_path
-        self._init_db()
+        self.history_file = history_file
+        self.history_df = self._load_history()
+        self._cleanup_old_history()
 
-    def _init_db(self) -> None:
-        """
-        Initializes an SQLite table to track previously scraped articles
-        and prevent processing duplicates in subsequent runs.
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('''
-                             CREATE TABLE IF NOT EXISTS history
-                             (
-                                 doc_hash
-                                 TEXT
-                                 PRIMARY
-                                 KEY,
-                                 url
-                                 TEXT
-                                 UNIQUE,
-                                 scraped_at
-                                 TIMESTAMP
-                                 DEFAULT
-                                 CURRENT_TIMESTAMP
-                             )
-                             ''')
-        except sqlite3.Error as e:
-            logger.error(f"SQLite DB initialization error: {e}")
+    def _load_history(self) -> pd.DataFrame:
+        """Loads historical scraped data from Parquet into a Pandas DataFrame."""
+        if os.path.exists(self.history_file):
+            try:
+                df = pd.read_parquet(self.history_file)
+                df['scraped_at'] = pd.to_datetime(df['scraped_at'], utc=True)
+                return df
+            except Exception as e:
+                logger.error(f"Error reading Parquet file: {e}. Creating new DataFrame.")
+
+        return pd.DataFrame(columns=["doc_hash", "url", "scraped_at"])
 
     def _cleanup_old_history(self) -> None:
-        """
-        Removes articles older than 4 hours from the history table
-        to keep the database size optimized.
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                # Wymiatamy wszystko, co ma timestamp starszy niż 4 godziny
-                conn.execute("DELETE FROM history WHERE scraped_at < datetime('now', '-4 hours')")
-                logger.info("Successfully cleaned up old historical duplicates from SQLite.")
-        except sqlite3.Error as e:
-            logger.error(f"Error during historical database cleanup: {e}")
+        """Removes rows older than 4 hours from the DataFrame in memory."""
+        if self.history_df.empty:
+            return
+
+        now = datetime.now(timezone.utc)
+        cutoff_time = now - timedelta(hours=4)
+
+        initial_len = len(self.history_df)
+        self.history_df = self.history_df[self.history_df['scraped_at'] >= cutoff_time]
+
+        if len(self.history_df) < initial_len:
+            logger.info("Successfully cleaned up old historical duplicates from cache.")
 
     def is_duplicate(self, doc_hash: str, url: str) -> bool:
-        """
-        Checks if an article with the given hash or URL has already been scraped.
-        """
-        if not doc_hash and not url:
+        """Checks if an article with the given hash or URL is in the current DataFrame."""
+        if self.history_df.empty:
             return False
 
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "SELECT 1 FROM history WHERE doc_hash = ? OR url = ?",
-                    (doc_hash, url)
-                )
-                return cursor.fetchone() is not None
-        except sqlite3.Error as e:
-            logger.error(f"Error checking for duplicates: {e}")
-            return False
+        is_hash_dup = (self.history_df['doc_hash'] == doc_hash).any() if doc_hash else False
+        is_url_dup = (self.history_df['url'] == url).any() if url else False
+
+        return is_hash_dup or is_url_dup
 
     def mark_as_scraped(self, doc_hash: str, url: str) -> None:
+        """Appends a new article's metadata to the DataFrame in memory."""
+        new_row = pd.DataFrame([{
+            "doc_hash": doc_hash,
+            "url": url,
+            "scraped_at": datetime.now(timezone.utc)
+        }])
+        self.history_df = pd.concat([self.history_df, new_row], ignore_index=True)
+
+    def save_history(self) -> None:
         """
-        Saves the article's hash and URL to the historical database
-        to bypass it during the next execution cycle.
+        Saves the updated in-memory DataFrame back to the Parquet file.
+        MUST be called at the end of the run() method in child classes.
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO history (doc_hash, url) VALUES (?, ?)",
-                    (doc_hash, url)
-                )
-        except sqlite3.Error as e:
-            logger.error(f"Error saving to historical database: {e}")
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            self.history_df.to_parquet(self.history_file, index=False)
+            logger.info(f"Successfully saved history cache to {self.history_file}.")
+        except Exception as e:
+            logger.error(f"Error saving historical database to Parquet: {e}")
 
     def fetch_html(self, url: str) -> Optional[str]:
         """
@@ -154,9 +142,10 @@ class BaseScraper(ABC):
         }
 
     @abstractmethod
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self) -> pd.DataFrame:
         """
         Main execution method to be triggered by main.py.
-        Each child scraper must implement its specific extraction logic here.
+        Each child scraper must return a Pandas DataFrame with columns:
+        doc_hash, source, url, date, title, content.
         """
         pass
