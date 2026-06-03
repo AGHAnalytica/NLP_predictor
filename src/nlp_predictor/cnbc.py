@@ -1,8 +1,9 @@
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any
 import logging
+import pandas as pd
 
-from src.nlp_predictor.scrapers.base import BaseScraper
+from src.nlp_predictor.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -14,19 +15,18 @@ class CNBCScraper(BaseScraper):
     Filters out CNBC Pro (paid) articles.
     """
 
-    def __init__(self, db_path: str = "data/scraped_history.db"):
-        super().__init__(db_path)
-
+    def __init__(self, history_file: str = "data/scraped_history.parquet"):
+        super().__init__(history_file)
 
         self.rss_feeds = [
             "https://www.cnbc.com/id/19836768/device/rss/rss.html",
             "https://www.cnbc.com/id/10000664/device/rss/rss.html"
         ]
 
-    def run(self) -> List[Dict[str, Any]]:
+    def run(self) -> pd.DataFrame:
         """
         Main loop.
-        Returns a list of dictionaries with new articles cleaned up.
+        Returns a Pandas DataFrame with new articles cleaned up.
         """
         articles_data = []
 
@@ -38,41 +38,33 @@ class CNBCScraper(BaseScraper):
                 continue
 
             try:
-
                 root = ET.fromstring(rss_xml)
-
 
                 for item in root.findall('.//item'):
                     raw_title = item.findtext('title')
                     article_url = item.findtext('link')
                     raw_date = item.findtext('pubDate')
 
-
                     if not raw_title or not article_url or not raw_date:
                         continue
-
 
                     raw_title = raw_title.strip()
                     article_url = article_url.strip()
                     raw_date = raw_date.strip()
 
-
                     if "cnbc.com/pro/" in article_url:
                         logger.debug(f"Skipped paid CNBC Pro article: {article_url}")
                         continue
 
-
                     if self.is_duplicate(doc_hash="", url=article_url):
                         logger.debug(f"Article already exists in DB (URL): {article_url}")
                         continue
-
 
                     logger.info(f"Fetching full content: {article_url}")
                     article_html = self.fetch_html(article_url)
 
                     if not article_html:
                         continue
-
 
                     processed = self.process_article(
                         source="CNBC",
@@ -88,5 +80,14 @@ class CNBCScraper(BaseScraper):
             except ET.ParseError as e:
                 logger.error(f"XML parsing error for {rss_url}: {e}")
 
+        self.save_history()
         logger.info(f"CNBCScraper finished. Fetched {len(articles_data)} new articles.")
-        return articles_data
+
+
+        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
+
+        if not articles_data:
+            return pd.DataFrame(columns=expected_columns)
+
+        df = pd.DataFrame(articles_data)
+        return df[expected_columns]
