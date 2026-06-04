@@ -150,10 +150,12 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         for _, row in global_trends_df.iterrows():
             title = str(row.get("title", "macro trend"))
             direction = str(row.get("direction", "neutral")).lower()
-            severity = row.get("severity", 0)
+            # Human/LLM-facing size is the raw topic count; the weighted 'severity' is
+            # for the conviction math, not for display (a "5.3 topics" reads wrong).
+            count = row.get("n_topics", row.get("severity", 0))
             description = str(row.get("description", "")).strip()
             lines.append(
-                f"- {title} (direction: {direction}, {severity} topics)"
+                f"- {title} (direction: {direction}, {count} topics)"
                 + (f": {description}" if description else "")
             )
         return "\n".join(lines)

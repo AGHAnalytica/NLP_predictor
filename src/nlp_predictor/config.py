@@ -101,9 +101,29 @@ Config = {
     # CLUSTERING PARAMETERS (Lower Path - Macro Trends)
     # =========================================================================
     # Minimum number of valid topics required for a cluster to not be rejected as noise.
+    # This is a SIZE gate (raw topic count), kept separate from the weighted macro
+    # severity below so a fresh-but-small or old-but-credible cluster is judged on
+    # membership, not on its conviction weight.
     "SEVERITY_THRESHOLD": 2,
     # Core HDBSCAN parameter: The minimum size of groupings to be considered a cluster.
     "MIN_CLUSTER_SIZE": 3,
+    # ---- Macro (cluster) severity: how each narrative is WEIGHTED for conviction ----
+    # Which model the lower path uses to score a cluster's intensity (NOT direction —
+    # the LLM sets that). The macro analogue of the upper path's SEVERITY_MODEL, and an
+    # A/B knob swept the same way:
+    #   "count"            - raw topic count (legacy; each topic weighs 1, old or fresh)
+    #   "decayed_weighted" - Σ source_weight × time_decay: a fresh, reputable narrative
+    #                        outweighs a stale, low-credibility one of the same size.
+    "MACRO_SEVERITY_MODEL": "decayed_weighted",
+    # Macro severity hyperparameters. half_life_hours is deliberately LONG vs the upper
+    # path (a regime persists longer than one instrument's news pulse); it is the A/B
+    # knob to tune. With "count" this is ignored.
+    "MACRO_SEVERITY_PARAMS": {"half_life_hours": 18.0},
+    # Lower-path (climate) lookback in hours. Pulled WIDER than the per-instrument trade
+    # horizon so HDBSCAN has the density to form stable clusters; recency is handled by
+    # the macro-severity decay above, not by this window's hard edge. Kept
+    # <= FEATURE_STORE_MAX_WINDOW_HOURS so the store always retains enough to fill it.
+    "CLIMATE_WINDOW_HOURS": 24.0,
     # =========================================================================
     # SEVERITY MODEL SELECTION (Upper Path)
     # =========================================================================
@@ -257,9 +277,12 @@ Config = {
     # =========================================================================
     # MACRO OVERLAY (lower path -> per-instrument climate effect)
     # =========================================================================
-    # Climate conviction = tanh(total clustered topic volume / SCALE), in [0, 1]. It
+    # Climate conviction = tanh(driver-cluster macro severity / SCALE), in [0, 1]. It
     # scales how hard the macro overlay moves confidence. Lower SCALE -> conviction
-    # saturates with fewer articles (climate trusted sooner); higher -> needs a broader
-    # narrative before it leans on the climate. v1 proxy for the macro severity.
-    "MACRO_CONVICTION_SCALE": 10.0,
+    # saturates with fewer/smaller narratives (climate trusted sooner); higher -> needs
+    # a broader narrative before it leans on the climate. Re-tuned DOWN from 10 because
+    # the macro severity is now a decayed, source-weighted volume (weights <= 1, decay
+    # <= 1), ~3x smaller than the old raw count it replaced. A starting point to tune
+    # live, not a final value.
+    "MACRO_CONVICTION_SCALE": 4.0,
 }

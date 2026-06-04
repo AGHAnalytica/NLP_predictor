@@ -26,7 +26,7 @@ Registered models:
 """
 
 import math
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -172,3 +172,55 @@ SEVERITY_REGISTRY = {
 
 # Columns every severity model needs from the group.
 REQUIRED_COLUMNS = ("date", "source_name", "sentiment", "source_weight")
+
+
+# =============================================================================
+# MACRO (lower-path) severity — cluster -> unsigned narrative INTENSITY
+# =============================================================================
+# Distinct from the per-instrument models above: a macro severity is UNSIGNED (a
+# magnitude, not a signed [-1, 1] call). The cluster's DIRECTION is decided separately
+# by the lower-path LLM; this only says how big / credible / fresh the narrative is,
+# which feeds the climate conviction tanh(intensity / MACRO_CONVICTION_SCALE). The group
+# is a cluster's topic rows (NOT exploded per instrument), so there is no 'sentiment'
+# column — only volume, recency (date) and publisher credibility (source_weight).
+
+_MACRO_DEFAULTS = {"half_life_hours": 18.0}
+
+
+def macro_severity_count(
+    group: pd.DataFrame, params: dict | None = None, now: datetime | None = None
+) -> float:
+    """Raw topic count — the legacy control (every topic weighs 1, fresh or stale)."""
+    return float(len(group))
+
+
+def macro_severity_decayed(
+    group: pd.DataFrame, params: dict | None = None, now: datetime | None = None
+) -> float:
+    """
+    Source-weighted, time-decayed narrative volume: ``Σ source_weight × decay(age)``.
+
+    Brings the upper path's two cheapest, most defensible ideas — recency and publisher
+    credibility — to the cluster level, so a fresh, reputable narrative outweighs a
+    stale, low-credibility one of the same raw size. The half-life is deliberately LONG
+    (a macro regime persists longer than a single instrument's news pulse) and is itself
+    an A/B knob via ``params['half_life_hours']``. Falls back to a raw count if the
+    needed columns are absent (e.g. a legacy topics table without source weights).
+    """
+    if group.empty:
+        return 0.0
+    if "date" not in group.columns or "source_weight" not in group.columns:
+        return float(len(group))
+    half_life = float(
+        (params or {}).get("half_life_hours", _MACRO_DEFAULTS["half_life_hours"])
+    )
+    now = now or datetime.now(UTC)
+    _, decay_factors = _decay(group, now, half_life)
+    return float((group["source_weight"] * decay_factors).sum())
+
+
+# Name -> function. Config["MACRO_SEVERITY_MODEL"] picks which one the lower path uses.
+MACRO_SEVERITY_REGISTRY = {
+    "count": macro_severity_count,
+    "decayed_weighted": macro_severity_decayed,
+}

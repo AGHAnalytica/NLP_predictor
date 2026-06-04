@@ -88,7 +88,7 @@ class TickRunner:
         self.climate_window_hours = (
             float(climate_window_hours)
             if climate_window_hours is not None
-            else float(Config["SIGNAL_WINDOW_HOURS"])
+            else float(Config["CLIMATE_WINDOW_HOURS"])
         )
 
     @classmethod
@@ -139,7 +139,7 @@ class TickRunner:
         #    then resolve it to a per-instrument overlay (the single LLM call here).
         #    Being shared across variants, it cannot bias which variant wins the A/B.
         climate_topics = self.store.window(self.climate_window_hours, now)
-        global_trends = self.lower.process_data(climate_topics)
+        global_trends = self.lower.process_data(climate_topics, now)
         overlay = self.macro.build(global_trends)
 
         # 4) Fuse each variant against that shared climate; tag with the tick identity.

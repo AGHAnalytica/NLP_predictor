@@ -35,7 +35,7 @@ class _FakeLower:
         self._gt = global_trends
         self.calls = 0
 
-    def process_data(self, topics_df):
+    def process_data(self, topics_df, now=None):
         self.calls += 1
         return self._gt
 
