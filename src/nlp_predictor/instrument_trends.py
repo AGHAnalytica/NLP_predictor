@@ -272,6 +272,83 @@ class UpperPathAnalyzer(BaseAnalyzer):
         )
         return pd.DataFrame(rows)
 
+    def score_variants(
+        self,
+        mapped_df: pd.DataFrame,
+        variants: list[dict] | None = None,
+        now: datetime | None = None,
+    ) -> pd.DataFrame:
+        """
+        Lean, LLM-free per-variant scoring over an ALREADY-MAPPED frame — the live
+        tick's hot path.
+
+        Unlike :meth:`generate_variant_trends`, this makes NO API calls: the
+        topic->instrument mapping (and the embeddings) were already paid for once when
+        the article entered the rolling feature store, so the only work per tick is the
+        cheap, deterministic severity recompute over each variant's window. It therefore
+        takes the feature store's :meth:`FeatureStore.to_instrument_frame` output (one
+        row per (topic, instrument) with ``date``/``source_name``/``sentiment``/
+        ``source_weight``/``topic_id``) rather than raw topics, and returns only the
+        columns the :class:`SignalGenerator` consumes — ``instrument``, ``severity``,
+        ``direction``, ``topic_ids`` — tagged with the variant + its provenance. Use
+        :meth:`generate_variant_trends` instead when you also want the LLM title/
+        description/llm_direction columns (offline analysis, not the tick).
+
+        Args:
+            mapped_df (pd.DataFrame): Pre-mapped long-form impacts from the feature
+                store.
+            variants (list[dict] | None): Variant specs; defaults to
+                ``Config["SEVERITY_VARIANTS"]``.
+            now (datetime | None): Reference time for windowing/decay; defaults to
+                ``datetime.now(UTC)``.
+
+        Returns:
+            pd.DataFrame: One row per (variant, instrument) with a 'variant' column.
+            Empty if nothing mapped or no variant had in-window articles.
+        """
+        variants = variants if variants is not None else Config["SEVERITY_VARIANTS"]
+        if mapped_df is None or mapped_df.empty:
+            return pd.DataFrame()
+
+        self.current_time = now or datetime.now(UTC)
+        mapped_df = mapped_df.copy()
+        # Severity time-decay and per-variant windowing both need tz-aware datetimes.
+        mapped_df["date"] = pd.to_datetime(mapped_df["date"], utc=True)
+
+        rows: list[dict] = []
+        for variant in variants:
+            window_df = self._window_frame(mapped_df, variant["window_hours"])
+            if window_df.empty:
+                continue
+            context = self._variant_context(window_df)
+            model_fn = SEVERITY_REGISTRY[variant["model"]]
+            params = variant.get("params", {})
+            for instrument, group in window_df.groupby("instrument"):
+                severity = self._severity_for(model_fn, group, params, context)
+                sev_direction = (
+                    "up" if severity > 0 else "down" if severity < 0 else "neutral"
+                )
+                rows.append(
+                    {
+                        "variant": variant["name"],
+                        "model": variant["model"],
+                        "window_hours": variant["window_hours"],
+                        "current_time": self.current_time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
+                        "instrument": str(instrument),
+                        "severity": round(severity, 4),
+                        "direction": sev_direction,
+                        "topic_ids": group["topic_id"].tolist(),
+                    }
+                )
+
+        print(
+            f"[INFO] Scored {len(rows)} (variant, instrument) signals across "
+            f"{len(variants)} variant(s) — no LLM (cached features)."
+        )
+        return pd.DataFrame(rows)
+
     def _window_frame(self, mapped_df: pd.DataFrame, hours: float) -> pd.DataFrame:
         """Rows whose article date is within the last ``hours`` of ``current_time``."""
         cutoff = self.current_time - pd.Timedelta(hours=float(hours))

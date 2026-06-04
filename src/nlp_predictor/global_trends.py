@@ -95,22 +95,42 @@ class LowerPathAnalyzer(BaseAnalyzer):
         if topics_df.empty:
             return pd.DataFrame()
 
-        print("[INFO] Preparing texts for embeddings...")
+        topics_df = topics_df.copy()
 
-        # 1. Concatenate name and description for rich semantic meaning
-        topics_df["text_for_embedding"] = (
-            topics_df["topic_name"] + ". " + topics_df["topic_description"]
-        )
-        print("[INFO] Requesting embeddings from OpenAI (Batch Mode)...")
-
-        # 2. Get embeddings in one single API call
-        texts_list = topics_df["text_for_embedding"].tolist()
-        try:
-            embeddings_list = self._generate_embeddings_batch(texts_list)
-            topics_df["embedding"] = embeddings_list
-        except Exception as e:
-            print(f"[ERROR] Failed to generate embeddings: {e}")
+        # HDBSCAN needs at least MIN_CLUSTER_SIZE samples; fewer cannot form a cluster
+        # anyway. A live tick's window can be that thin, so short-circuit instead of
+        # letting the clusterer raise (and skip a pointless embedding call).
+        min_cluster_size = int(Config["MIN_CLUSTER_SIZE"])
+        if len(topics_df) < min_cluster_size:
+            print(
+                f"[INFO] Only {len(topics_df)} topic(s) (< MIN_CLUSTER_SIZE "
+                f"{min_cluster_size}); no macro clusters."
+            )
             return pd.DataFrame()
+
+        # Reuse the embeddings cached in the feature store when present: every cached
+        # topic row carries its vector, so on a live tick the lower path must NOT re-pay
+        # the embedding API for articles it has already embedded. Only an uncached batch
+        # (e.g. the legacy single-pass run) hits the API.
+        has_cached = (
+            "embedding" in topics_df.columns
+            and topics_df["embedding"].apply(lambda v: isinstance(v, list)).all()
+        )
+        if has_cached:
+            print("[INFO] Reusing cached topic embeddings from the feature store.")
+        else:
+            print("[INFO] Requesting embeddings from OpenAI (Batch Mode)...")
+            # Concatenate name + description for rich semantic meaning, then embed in
+            # one single API call.
+            topics_df["text_for_embedding"] = (
+                topics_df["topic_name"] + ". " + topics_df["topic_description"]
+            )
+            texts_list = topics_df["text_for_embedding"].tolist()
+            try:
+                topics_df["embedding"] = self._generate_embeddings_batch(texts_list)
+            except Exception as e:
+                print(f"[ERROR] Failed to generate embeddings: {e}")
+                return pd.DataFrame()
 
         print("[INFO] Clustering global topics using HDBSCAN...")
         # 3. Apply HDBSCAN Clustering
