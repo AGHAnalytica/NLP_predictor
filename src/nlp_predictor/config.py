@@ -87,6 +87,11 @@ Config = {
     "SIGNALS_SAVE_PATH_PARQUET": str(
         BASE_DIR / "data" / "test_results" / "signals_parquet"
     ),  # noqa: E501
+    # Rolling feature store: per-topic embeddings + instrument impacts, cached once
+    # per article so the expensive LLM/embedding work is reused across 15-min ticks.
+    "FEATURE_STORE_PATH": str(
+        BASE_DIR / "data" / "feature_store" / "topic_features.parquet"
+    ),  # noqa: E501
     # =========================================================================
     # CLUSTERING PARAMETERS (Lower Path - Macro Trends)
     # =========================================================================
@@ -129,6 +134,17 @@ Config = {
     # [Velocity Window] The maximum age (in hours) an article can be to be considered
     # "breaking/recent" for the velocity calculation.
     "DCIM_RECENT_WINDOW_HOURS": 0.5,
+    # =========================================================================
+    # ROLLING FEATURE STORE / SIGNAL WINDOW
+    # =========================================================================
+    # The lookback window (in hours) of cached articles fed into severity at each tick.
+    # This is a FIRST-CLASS A/B KNOB: different methods/accounts can run different
+    # windows (e.g. 4h vs 8h vs 24h) to measure which horizon predicts best.
+    "SIGNAL_WINDOW_HOURS": 4.0,
+    # The longest window we ever retain in the store. Must be >= the largest
+    # SIGNAL_WINDOW_HOURS we A/B, so no method is starved of data. Anything older is
+    # pruned on write (it can never fall inside any active window again).
+    "FEATURE_STORE_MAX_WINDOW_HOURS": 24.0,
     # =========================================================================
     # SIGNAL GENERATION (Final fusion layer)
     # =========================================================================

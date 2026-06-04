@@ -233,9 +233,6 @@ class SignalGenerator:
         - Start with the severity sign for direction and magnitude for base confidence.
         - Modulate confidence based on the macro alignment (coverage of shared topics
         with macro narratives, and whether they agree or conflict).
-        - If the per-instrument summary's direction disagrees with the severity sign, it
-        is likely a noisy/conflicted case, so discount confidence and flag it in the
-        rationale.
         - Apply gating rules: if severity is too weak, or if there is a strong macro
         veto, set the signal to NEUTRAL and explain why in the rationale.
         - Compose a human-readable rationale that explains the key factors behind the
@@ -258,9 +255,12 @@ class SignalGenerator:
         strength = abs(severity)
         instr_topics = set(_as_id_list(row.get("topic_ids")))
         n_topics = len(instr_topics)
-        llm_direction = str(row.get("direction", "neutral")).lower()
 
         # Direction comes from the quantitative severity sign (the source of truth).
+        # The per-instrument LLM summary's stated direction is deliberately NOT
+        # consulted here: it would inject a stochastic, non-reproducible factor that
+        # differs between severity methods, breaking the A/B/n comparison where the
+        # method must be the only variable. The severity sign is the whole decision.
         sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
 
         # 1) Base confidence is just |severity|. The DCIM already folds article
@@ -280,18 +280,7 @@ class SignalGenerator:
         macro_factor = max(0.0, macro_factor)
         confidence = base_conf * macro_factor
 
-        # 3) Internal consistency check: the per-instrument LLM summary's stated
-        #    direction should match the severity sign. If it doesn't, trust the
-        #    number but discount confidence and flag it.
-        internal_conflict = (
-            sev_direction != "neutral"
-            and llm_direction in ("up", "down")
-            and llm_direction != sev_direction
-        )
-        if internal_conflict:
-            confidence *= 0.7
-
-        # 4) Gating + macro veto -> the final discrete decision.
+        # 3) Gating + macro veto -> the final discrete decision.
         signal = sev_direction.upper()
         gate_reason = ""
         if strength < float(Config["SIGNAL_NEUTRAL_THRESHOLD"]):
@@ -324,7 +313,6 @@ class SignalGenerator:
             macro_title=macro_title,
             agree_cov=agree_cov,
             conflict_cov=conflict_cov,
-            internal_conflict=internal_conflict,
             signal=signal,
             confidence=confidence,
             gate_reason=gate_reason,
@@ -353,7 +341,6 @@ class SignalGenerator:
         macro_title: str,
         agree_cov: float,
         conflict_cov: float,
-        internal_conflict: bool,
         signal: str,
         confidence: float,
         gate_reason: str,
@@ -381,8 +368,6 @@ class SignalGenerator:
             macro_title (str): The title of the dominant macro narrative for context.
             agree_cov (float): The coverage of agreeing macro narratives.
             conflict_cov (float): The coverage of conflicting macro narratives.
-            internal_conflict (bool): Whether there was a conflict between the severity
-            sign and the LLM summary direction.
             signal (str): The final discrete signal ('UP', 'DOWN', 'NEUTRAL').
             confidence (float): The final confidence score in [0, 1].
             gate_reason (str): If the signal was gated to NEUTRAL, the reason for the
@@ -415,11 +400,6 @@ class SignalGenerator:
         else:
             parts.append("No overlapping macro narrative.")
 
-        if internal_conflict:
-            parts.append(
-                "Note: the per-instrument summary's direction disagreed with the "
-                "severity sign, so confidence was discounted."
-            )
         if gate_reason:
             parts.append(f"Gated to NEUTRAL: {gate_reason}.")
 

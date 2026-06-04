@@ -435,6 +435,13 @@ class UpperPathAnalyzer(BaseAnalyzer):
                 "direction": "neutral",
             }
 
+        # Direction is the deterministic sign of THIS method's own severity — the source
+        # of truth the signal trades on. The LLM summary's stated direction is retained
+        # only as a side column (``llm_direction``) for analysis/audit; it never enters
+        # the decision path, so each severity method stays self-contained and the A/B/n
+        # comparison isolates the method as the only variable.
+        sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
+
         return {
             "trend_id": str(uuid.uuid4()),
             "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
@@ -444,7 +451,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
             "title": result.get("title", "Unknown"),
             "description": result.get("description", "Unknown"),
             "severity": round(severity, 2),
-            "direction": result.get("direction", "neutral").lower(),
+            "direction": sev_direction,
+            "llm_direction": result.get("direction", "neutral").lower(),
             "topic_ids": topic_ids,
         }
 
