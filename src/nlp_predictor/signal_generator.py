@@ -99,6 +99,8 @@ class SignalGenerator:
         self,
         instrument_trends_df: pd.DataFrame,
         global_trends_df: pd.DataFrame | None = None,
+        macro_overlay: dict | None = None,
+        macro_conviction: float = 0.0,
     ) -> pd.DataFrame:
         """
         Produce the final signal table. The main entry point for this class.
@@ -106,8 +108,20 @@ class SignalGenerator:
         Args:
             instrument_trends_df (pd.DataFrame): Upper-path output. Needs
                 'instrument', 'severity', 'direction' and 'topic_ids' columns.
-            global_trends_df (pd.DataFrame | None): Lower-path output (may be empty or
-                None — macro modulation is simply skipped in that case).
+            global_trends_df (pd.DataFrame | None): Lower-path output. Only used for the
+                legacy topic-overlap fallback when no ``macro_overlay`` is supplied.
+            macro_overlay (dict | None): Per-instrument climate effect from the LLM
+                macro overlay — ``{instrument: {'effect', 'strength', 'rationale'}}``
+                (see :class:`macro_overlay.MacroOverlay`). When provided, this is the
+                PRIMARY macro channel and it replaces the topic-overlap link: it covers
+                both the shared-topic case and the "unrelated instrument vs the broad
+                climate" case the topic overlap could not express. Computed once per
+                tick upstream (one shared LLM call), so it is identical across A/B
+                severity variants and does not confound their comparison.
+            macro_conviction (float): How strong/pervasive the overall climate is, in
+                [0, 1] (the quantitative macro severity). It scales how hard the overlay
+                moves confidence — a flimsy climate barely modulates, a pervasive one
+                modulates fully.
 
         Returns:
             pd.DataFrame: Signals with :attr:`OUTPUT_COLUMNS`, sorted by descending
@@ -121,7 +135,9 @@ class SignalGenerator:
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         signals = [
-            self._signal_for_instrument(row, macro_index, now)
+            self._signal_for_instrument(
+                row, macro_index, now, macro_overlay, macro_conviction
+            )
             for _, row in instrument_trends_df.iterrows()
         ]
 
@@ -224,8 +240,65 @@ class SignalGenerator:
         dominant_title = agree_title if agree_cov >= conflict_cov else conflict_title
         return agree_cov, conflict_cov, dominant_title
 
+    @staticmethod
+    def _overlay_alignment(
+        instrument: str,
+        sev_direction: str,
+        macro_overlay: dict,
+        macro_conviction: float,
+    ) -> tuple[float, float, str]:
+        """
+        Climate-overlay alignment for one instrument (the primary macro channel).
+
+        The overlay says how the broad climate pushes this instrument's PRICE
+        ('tailwind' = up, 'headwind' = down, 'neutral'). We compare that to the
+        instrument's own signal direction: a push in the same direction agrees
+        (reinforces confidence), the opposite conflicts (trims/vetoes). The returned
+        agree/conflict are the EFFECTIVE alignment already scaled by both the LLM's
+        per-instrument ``strength`` and the overall ``macro_conviction``, so the
+        downstream confidence math is identical to the topic-overlap path.
+
+        Args:
+            instrument (str): The ticker.
+            sev_direction (str): The instrument's own direction ('up'/'down'/'neutral').
+            macro_overlay (dict): ``{instrument: {'effect', 'strength', 'rationale'}}``.
+            macro_conviction (float): Overall climate strength in [0, 1].
+
+        Returns:
+            tuple[float, float, str]: ``(agree, conflict, title)`` — at most one of
+            agree/conflict is non-zero; title is the climate's rationale for this name.
+        """
+        if sev_direction not in ("up", "down") or macro_conviction <= 0.0:
+            return 0.0, 0.0, ""
+
+        entry = macro_overlay.get(instrument)
+        if not entry:
+            return 0.0, 0.0, ""
+
+        effect = str(entry.get("effect", "neutral")).lower()
+        strength = max(0.0, min(1.0, float(entry.get("strength", 0.0))))
+        title = str(entry.get("rationale", "macro climate"))
+        effect_dir = (
+            "up" if effect == "tailwind"
+            else "down" if effect == "headwind"
+            else "neutral"
+        )
+
+        if effect_dir == "neutral" or strength == 0.0:
+            return 0.0, 0.0, ""
+
+        effective = strength * macro_conviction
+        if effect_dir == sev_direction:
+            return effective, 0.0, title
+        return 0.0, effective, title
+
     def _signal_for_instrument(
-        self, row: pd.Series, macro_index: list[dict], now: str
+        self,
+        row: pd.Series,
+        macro_index: list[dict],
+        now: str,
+        macro_overlay: dict | None = None,
+        macro_conviction: float = 0.0,
     ) -> dict:
         """
         Turn one upper-path instrument trend into a final signal row.
@@ -268,10 +341,18 @@ class SignalGenerator:
         #    there is nothing extra to add here.
         base_conf = strength
 
-        # 2) Macro modulation via shared topics.
-        agree_cov, conflict_cov, macro_title = self._macro_alignment(
-            instr_topics, sev_direction, macro_index
-        )
+        # 2) Macro modulation. Prefer the LLM climate overlay (primary channel); fall
+        #    back to the legacy topic-overlap link only when no overlay was supplied.
+        #    Either way we end up with effective agree/conflict in [0, 1], so the
+        #    confidence math below is identical regardless of source.
+        if macro_overlay is not None:
+            agree_cov, conflict_cov, macro_title = self._overlay_alignment(
+                instrument, sev_direction, macro_overlay, macro_conviction
+            )
+        else:
+            agree_cov, conflict_cov, macro_title = self._macro_alignment(
+                instr_topics, sev_direction, macro_index
+            )
         macro_factor = (
             1.0
             + float(Config["SIGNAL_MACRO_ALIGN_BONUS"]) * agree_cov
@@ -389,13 +470,13 @@ class SignalGenerator:
 
         if macro_context == "AGREE":
             parts.append(
-                f"Macro narrative '{macro_title}' aligns "
-                f"(coverage {agree_cov:.0%}), reinforcing confidence."
+                f"Macro climate '{macro_title}' aligns "
+                f"(strength {agree_cov:.0%}), reinforcing confidence."
             )
         elif macro_context == "CONFLICT":
             parts.append(
-                f"Macro narrative '{macro_title}' opposes it "
-                f"(coverage {conflict_cov:.0%}), trimming confidence."
+                f"Macro climate '{macro_title}' opposes it "
+                f"(strength {conflict_cov:.0%}), trimming confidence."
             )
         else:
             parts.append("No overlapping macro narrative.")

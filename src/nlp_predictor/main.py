@@ -17,6 +17,7 @@ from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.macro_overlay import MacroOverlayAnalyzer
 from nlp_predictor.scraper_runner import run_real_scrapers
 from nlp_predictor.signal_generator import SignalGenerator
 from nlp_predictor.topic_extractor import TopicExtractor
@@ -114,11 +115,20 @@ def main() -> None:
     global_trends.to_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"], index=False)
     print(f"[INFO] Generated {len(global_trends)} global trends.")
 
+    # Resolve the broad climate to a per-instrument effect (one shared LLM call), so the
+    # fusion can modulate confidence by whether each call rides or fights the climate.
+    macro = MacroOverlayAnalyzer(Config["INSTRUMENT_PATH"]).build(global_trends)
+
     # ------------------------------------------------------- Final signal layer
-    # Fuse the two paths: instrument severity sets direction, macro narrative
-    # modulates confidence. Produces the system's actionable output.
+    # Fuse the two paths: instrument severity sets direction, the macro climate overlay
+    # modulates confidence (scaled by conviction). The system's actionable output.
     print("\n====== [5/5] Final signal generation ======")
-    signals = SignalGenerator().generate(instrument_trends, global_trends)
+    signals = SignalGenerator().generate(
+        instrument_trends,
+        global_trends,
+        macro_overlay=macro.effects,
+        macro_conviction=macro.conviction,
+    )
     BaseAnalyzer.save_trends(signals, Config["SIGNALS_SAVE_PATH_PARQUET"])
     signals.to_csv(Config["SIGNALS_SAVE_PATH_CSV"], index=False)
 

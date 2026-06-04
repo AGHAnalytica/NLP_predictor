@@ -238,13 +238,23 @@ Config = {
     "SIGNAL_NEUTRAL_THRESHOLD": 0.15,
     # Base confidence is just |DCIM severity| (which already encodes article volume,
     # source weight, consensus and recency), then modulated by the macro factor below.
-    # Macro modulation: confidence *= 1 + ALIGN_BONUS*agree - CONFLICT_PENALTY*conflict,
-    # where coverage = fraction of the instrument's topics inside the macro narrative.
+    # Macro modulation: confidence *= 1 + ALIGN_BONUS*agree - CONFLICT_PENALTY*conflict.
+    # With the LLM macro overlay (primary path), agree/conflict = the instrument's
+    # climate strength x the overall climate conviction; with the legacy topic-overlap
+    # fallback they are the fraction of the instrument's topics inside the narrative.
     "SIGNAL_MACRO_ALIGN_BONUS": 0.25,
     "SIGNAL_MACRO_CONFLICT_PENALTY": 0.5,
-    # Macro veto: a strong opposing macro narrative can flip a WEAK instrument call to
-    # NEUTRAL (only when coverage >= VETO_COVERAGE and |severity| < VETO_STRENGTH_CAP).
+    # Macro veto: a strong opposing climate can flip a WEAK instrument call to NEUTRAL
+    # (only when effective conflict >= VETO_COVERAGE and |severity| < VETO_STRENGTH_CAP)
     "SIGNAL_MACRO_VETO": True,
     "SIGNAL_VETO_COVERAGE": 0.5,
     "SIGNAL_VETO_STRENGTH_CAP": 0.4,
+    # =========================================================================
+    # MACRO OVERLAY (lower path -> per-instrument climate effect)
+    # =========================================================================
+    # Climate conviction = tanh(total clustered topic volume / SCALE), in [0, 1]. It
+    # scales how hard the macro overlay moves confidence. Lower SCALE -> conviction
+    # saturates with fewer articles (climate trusted sooner); higher -> needs a broader
+    # narrative before it leans on the climate. v1 proxy for the macro severity.
+    "MACRO_CONVICTION_SCALE": 10.0,
 }
