@@ -137,14 +137,100 @@ Config = {
     # =========================================================================
     # ROLLING FEATURE STORE / SIGNAL WINDOW
     # =========================================================================
-    # The lookback window (in hours) of cached articles fed into severity at each tick.
-    # This is a FIRST-CLASS A/B KNOB: different methods/accounts can run different
-    # windows (e.g. 4h vs 8h vs 24h) to measure which horizon predicts best.
-    "SIGNAL_WINDOW_HOURS": 4.0,
-    # The longest window we ever retain in the store. Must be >= the largest
-    # SIGNAL_WINDOW_HOURS we A/B, so no method is starved of data. Anything older is
-    # pruned on write (it can never fall inside any active window again).
-    "FEATURE_STORE_MAX_WINDOW_HOURS": 24.0,
+    # Default lookback (hours) of cached articles fed into severity. Each A/B variant
+    # carries its OWN window_hours (below), so this is just the fallback for the legacy
+    # single-model path; the experiment varies window per variant. Set near the target
+    # ~12-16h holding horizon.
+    "SIGNAL_WINDOW_HOURS": 16.0,
+    # The longest window we ever retain in the store. Must be >= the largest variant
+    # window_hours we A/B (currently 24h), with headroom, so no variant is starved of
+    # data. Anything older is pruned on write (it can never re-enter any window again).
+    "FEATURE_STORE_MAX_WINDOW_HOURS": 36.0,
+    # =========================================================================
+    # SEVERITY VARIANTS (A/B/n across demo accounts)
+    # =========================================================================
+    # Each entry is one self-contained strategy: a registered severity model + its
+    # hyperparameters + its lookback window. Every variant is scored on the SAME cached
+    # window each tick and routed to its own demo account, so realized PnL attributes
+    # cleanly to the (model, params, window) triple.
+    #
+    # Params are tuned for ~12-16h holding positions, which drives three choices:
+    #   - window_hours ~ the holding horizon, so the signal aggregates the news the
+    #     position will actually live through (a 4h window would churn within the hold);
+    #   - half_life_hours ~ the hold too, so an article stays relevant across it rather
+    #     than decaying away after a couple of hours (intraday tuning);
+    #   - kappa lowered as the window widens — more articles -> larger impact sum ->
+    #     tanh saturates sooner, so longer windows need a gentler scale to keep range.
+    # Velocity is de-emphasised (lower delta, wider recent window) since a 12-16h hold
+    # does not care about sub-hour breaking spikes the way an intraday scalp would.
+    # These are principled STARTING points to be tuned offline against the eval, not
+    # final values.
+    "SEVERITY_VARIANTS": [
+        {
+            "name": "baseline_16h",
+            "model": "baseline",
+            "window_hours": 16.0,
+            "params": {"half_life_hours": 12.0, "kappa_scale": 0.8},
+        },
+        {
+            "name": "dcim_12h_fast",
+            "model": "dcim",
+            "window_hours": 12.0,
+            "params": {
+                "half_life_hours": 8.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.3,
+                "kappa_scale": 0.8,
+                "recent_window_hours": 1.0,
+            },
+        },
+        {
+            "name": "dcim_16h",
+            "model": "dcim",
+            "window_hours": 16.0,
+            "params": {
+                "half_life_hours": 12.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.25,
+                "kappa_scale": 0.7,
+                "recent_window_hours": 1.5,
+            },
+        },
+        {
+            "name": "dcim_24h_slow",
+            "model": "dcim",
+            "window_hours": 24.0,
+            "params": {
+                "half_life_hours": 16.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.2,
+                "kappa_scale": 0.6,
+                "recent_window_hours": 2.0,
+            },
+        },
+        {
+            "name": "dcim_16h_consensus",
+            "model": "dcim",
+            "window_hours": 16.0,
+            "params": {
+                "half_life_hours": 12.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.6,
+                "delta_velocity": 0.2,
+                "kappa_scale": 0.7,
+                "recent_window_hours": 1.5,
+            },
+        },
+        {
+            "name": "abnvol_16h",
+            "model": "abnormal_volume",
+            "window_hours": 16.0,
+            "params": {"half_life_hours": 12.0, "kappa_scale": 1.0},
+        },
+    ],
     # =========================================================================
     # SIGNAL GENERATION (Final fusion layer)
     # =========================================================================
