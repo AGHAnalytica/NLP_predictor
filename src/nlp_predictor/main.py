@@ -127,7 +127,6 @@ def main() -> None:
         instrument_trends,
         global_trends,
         macro_overlay=macro.effects,
-        macro_conviction=macro.conviction,
     )
     BaseAnalyzer.save_trends(signals, Config["SIGNALS_SAVE_PATH_PARQUET"])
     signals.to_csv(Config["SIGNALS_SAVE_PATH_CSV"], index=False)

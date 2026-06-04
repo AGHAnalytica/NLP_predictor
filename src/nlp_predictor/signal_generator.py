@@ -34,6 +34,7 @@ Output contract (one row per instrument, sorted by confidence):
 """
 
 import ast
+import math
 import uuid
 from datetime import UTC, datetime
 
@@ -100,7 +101,6 @@ class SignalGenerator:
         instrument_trends_df: pd.DataFrame,
         global_trends_df: pd.DataFrame | None = None,
         macro_overlay: dict | None = None,
-        macro_conviction: float = 0.0,
     ) -> pd.DataFrame:
         """
         Produce the final signal table. The main entry point for this class.
@@ -108,8 +108,10 @@ class SignalGenerator:
         Args:
             instrument_trends_df (pd.DataFrame): Upper-path output. Needs
                 'instrument', 'severity', 'direction' and 'topic_ids' columns.
-            global_trends_df (pd.DataFrame | None): Lower-path output. Only used for the
-                legacy topic-overlap fallback when no ``macro_overlay`` is supplied.
+            global_trends_df (pd.DataFrame | None): Lower-path macro clusters. Provides
+                the per-cluster 'topic_ids' and 'severity' used to weight each
+                instrument's climate conviction (:meth:`_macro_conviction`), and the
+                'direction' used by the legacy topic-overlap fallback.
             macro_overlay (dict | None): Per-instrument climate effect from the LLM
                 macro overlay — ``{instrument: {'effect', 'strength', 'rationale'}}``
                 (see :class:`macro_overlay.MacroOverlay`). When provided, this is the
@@ -117,11 +119,10 @@ class SignalGenerator:
                 both the shared-topic case and the "unrelated instrument vs the broad
                 climate" case the topic overlap could not express. Computed once per
                 tick upstream (one shared LLM call), so it is identical across A/B
-                severity variants and does not confound their comparison.
-            macro_conviction (float): How strong/pervasive the overall climate is, in
-                [0, 1] (the quantitative macro severity). It scales how hard the overlay
-                moves confidence — a flimsy climate barely modulates, a pervasive one
-                modulates fully.
+                severity variants and does not confound their comparison. Climate
+                CONVICTION is derived per-instrument here from ``global_trends_df`` (the
+                driving clusters' severity), so it correctly reflects how big the
+                narrative behind each instrument actually is.
 
         Returns:
             pd.DataFrame: Signals with :attr:`OUTPUT_COLUMNS`, sorted by descending
@@ -135,9 +136,7 @@ class SignalGenerator:
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         signals = [
-            self._signal_for_instrument(
-                row, macro_index, now, macro_overlay, macro_conviction
-            )
+            self._signal_for_instrument(row, macro_index, now, macro_overlay)
             for _, row in instrument_trends_df.iterrows()
         ]
 
@@ -171,6 +170,8 @@ class SignalGenerator:
             - 'direction': the direction of the macro trend ('up', 'down', 'neutral
                 etc.)
             - 'title': the title of the macro trend for context
+            - 'severity': the cluster's topic count, used to weight per-instrument
+                conviction (see :meth:`_macro_conviction`)
         """
         if global_trends_df is None or global_trends_df.empty:
             return []
@@ -180,14 +181,58 @@ class SignalGenerator:
             topic_ids = set(_as_id_list(row.get("topic_ids")))
             if not topic_ids:
                 continue
+            try:
+                severity = float(row.get("severity", 0) or 0)
+            except (TypeError, ValueError):
+                severity = 0.0
             index.append(
                 {
                     "topic_ids": topic_ids,
                     "direction": str(row.get("direction", "neutral")).lower(),
                     "title": str(row.get("title", "macro trend")),
+                    "severity": severity,
                 }
             )
         return index
+
+    def _macro_conviction(self, instr_topics: set, macro_index: list[dict]) -> float:
+        """
+        Per-instrument climate conviction in [0, 1] — how much to trust the climate FOR
+        THIS instrument, weighted by the narratives that actually drive it.
+
+        This fixes the global-sum flaw: a single ``tanh(total_volume / scale)`` scalar
+        gave an instrument the same conviction whether its true driver was 3 articles
+        or 20, as long as the climate-wide total matched. Instead we attribute
+        per-instrument with a hybrid:
+
+        - DIRECT involvement: if the instrument's own topics overlap one or more
+          clusters (it is literally part of those narratives), conviction comes from the
+          summed severity of just those driving clusters. So a GOOGL driven by a 3-topic
+          cluster scores ``tanh(3/scale)``; the same GOOGL with a 20-topic AI cluster
+          scores ``tanh(20/scale)`` — regardless of unrelated loud clusters.
+        - DIFFUSE fallback: if the instrument shares no topics with any cluster, the
+          effect is the broad market mood (e.g. a long fighting an unrelated risk-off
+          panic), so conviction is the whole climate's volume — that is the correct
+          weight for a diffuse, market-wide push.
+
+        Args:
+            instr_topics (set): The instrument's own topic IDs.
+            macro_index (list[dict]): Cluster records from :meth:`_build_macro_index`
+                (need 'topic_ids' and 'severity').
+
+        Returns:
+            float: Conviction in [0, 1].
+        """
+        scale = float(Config["MACRO_CONVICTION_SCALE"])
+        if scale <= 0.0 or not macro_index:
+            return 0.0
+
+        drivers = [m for m in macro_index if instr_topics & m["topic_ids"]]
+        if drivers:
+            volume = sum(m["severity"] for m in drivers)  # direct drivers only
+        else:
+            volume = sum(m["severity"] for m in macro_index)  # diffuse: whole climate
+        return math.tanh(volume / scale)
 
     def _macro_alignment(
         self, instr_topics: set, direction: str, macro_index: list[dict]
@@ -255,14 +300,15 @@ class SignalGenerator:
         instrument's own signal direction: a push in the same direction agrees
         (reinforces confidence), the opposite conflicts (trims/vetoes). The returned
         agree/conflict are the EFFECTIVE alignment already scaled by both the LLM's
-        per-instrument ``strength`` and the overall ``macro_conviction``, so the
-        downstream confidence math is identical to the topic-overlap path.
+        per-instrument ``strength`` and this instrument's ``macro_conviction`` (the
+        per-instrument conviction from :meth:`_macro_conviction`), so the downstream
+        confidence math is identical to the topic-overlap path.
 
         Args:
             instrument (str): The ticker.
             sev_direction (str): The instrument's own direction ('up'/'down'/'neutral').
             macro_overlay (dict): ``{instrument: {'effect', 'strength', 'rationale'}}``.
-            macro_conviction (float): Overall climate strength in [0, 1].
+            macro_conviction (float): This instrument's climate conviction in [0, 1].
 
         Returns:
             tuple[float, float, str]: ``(agree, conflict, title)`` — at most one of
@@ -298,7 +344,6 @@ class SignalGenerator:
         macro_index: list[dict],
         now: str,
         macro_overlay: dict | None = None,
-        macro_conviction: float = 0.0,
     ) -> dict:
         """
         Turn one upper-path instrument trend into a final signal row.
@@ -344,8 +389,10 @@ class SignalGenerator:
         # 2) Macro modulation. Prefer the LLM climate overlay (primary channel); fall
         #    back to the legacy topic-overlap link only when no overlay was supplied.
         #    Either way we end up with effective agree/conflict in [0, 1], so the
-        #    confidence math below is identical regardless of source.
+        #    confidence math below is identical regardless of source. Conviction is
+        #    computed per-instrument from the driving clusters, not a global scalar.
         if macro_overlay is not None:
+            macro_conviction = self._macro_conviction(instr_topics, macro_index)
             agree_cov, conflict_cov, macro_title = self._overlay_alignment(
                 instrument, sev_direction, macro_overlay, macro_conviction
             )
