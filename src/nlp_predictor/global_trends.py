@@ -15,6 +15,7 @@ from sklearn.cluster import HDBSCAN
 from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
 from nlp_predictor.config import Config  # type: ignore
 from nlp_predictor.prompts import PROMPTS  # type: ignore
+from nlp_predictor.severity_models import MACRO_SEVERITY_REGISTRY  # type: ignore
 
 # Load environment variables from the .env file located in the project root
 load_dotenv(override=True)
@@ -63,54 +64,88 @@ class LowerPathAnalyzer(BaseAnalyzer):
 
     def _calculate_severity(self, group: pd.DataFrame) -> float:
         """
-        Calculates the severity of a group of topics based on their embeddings.
-        For simplicity, this implementation uses the number of topics in the cluster as
-        a severity indicator, but this can be enhanced with more complex logic
-        (e.g., average distance)
+        Score a cluster's macro severity — its UNSIGNED narrative intensity (the weight
+        the climate conviction leans on), not its direction.
+
+        Dispatches to the model named by ``Config["MACRO_SEVERITY_MODEL"]`` from
+        :data:`severity_models.MACRO_SEVERITY_REGISTRY` (``count`` or the default
+        ``decayed_weighted`` = source-weighted, time-decayed volume), so the macro
+        severity is an A/B knob just like the upper-path severity. Recency uses
+        ``self.current_time`` (the tick clock), keeping it consistent with the article
+        dates the cluster is built from.
 
         Args:
-            group (pd.DataFrame): A DataFrame containing the topics in a cluster.
+            group (pd.DataFrame): The topics in one cluster (carrying ``date`` and
+                ``source_weight`` for the weighted models).
 
         Returns:
-            float: A severity score for the cluster, where higher values indicate more
-            significant trends.
+            float: A non-negative intensity; larger = a bigger / fresher / more credible
+            narrative.
         """
-        return float(len(group))
+        model = MACRO_SEVERITY_REGISTRY[str(Config["MACRO_SEVERITY_MODEL"])]
+        return model(group, Config["MACRO_SEVERITY_PARAMS"], self.current_time)
 
-    def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
+    def process_data(
+        self, topics_df: pd.DataFrame, now: datetime | None = None
+    ) -> pd.DataFrame:
         """
         Processes the input topics DataFrame to identify global macroeconomic trends.
         This involves generating embeddings, clustering topics, and summarizing trends.
 
         Args:
             topics_df (pd.DataFrame): DataFrame containing the topics with columns
-            ['topic_id', 'topic_name', 'topic_description', 'date'].
+            ['topic_id', 'topic_name', 'topic_description', 'date'] (plus
+            'source_weight' for the weighted macro severity).
+            now (datetime | None): Reference time for the macro-severity time decay;
+            defaults to ``datetime.now(UTC)``. The tick passes its own clock so the
+            decay is consistent with the article dates the clusters are built from.
 
         Returns:
             pd.DataFrame: A DataFrame containing the identified global trends with
             columns ['trend_id', 'current_time', 'first_article_time',
             'newest_article_time', 'cluster_id', 'title', 'description', 'severity',
-            'direction', 'topic_ids'].
+            'n_topics', 'direction', 'topic_ids'].
         """
         if topics_df.empty:
             return pd.DataFrame()
 
-        print("[INFO] Preparing texts for embeddings...")
+        self.current_time = now or datetime.now(UTC)
+        topics_df = topics_df.copy()
 
-        # 1. Concatenate name and description for rich semantic meaning
-        topics_df["text_for_embedding"] = (
-            topics_df["topic_name"] + ". " + topics_df["topic_description"]
-        )
-        print("[INFO] Requesting embeddings from OpenAI (Batch Mode)...")
-
-        # 2. Get embeddings in one single API call
-        texts_list = topics_df["text_for_embedding"].tolist()
-        try:
-            embeddings_list = self._generate_embeddings_batch(texts_list)
-            topics_df["embedding"] = embeddings_list
-        except Exception as e:
-            print(f"[ERROR] Failed to generate embeddings: {e}")
+        # HDBSCAN needs at least MIN_CLUSTER_SIZE samples; fewer cannot form a cluster
+        # anyway. A live tick's window can be that thin, so short-circuit instead of
+        # letting the clusterer raise (and skip a pointless embedding call).
+        min_cluster_size = int(Config["MIN_CLUSTER_SIZE"])
+        if len(topics_df) < min_cluster_size:
+            print(
+                f"[INFO] Only {len(topics_df)} topic(s) (< MIN_CLUSTER_SIZE "
+                f"{min_cluster_size}); no macro clusters."
+            )
             return pd.DataFrame()
+
+        # Reuse the embeddings cached in the feature store when present: every cached
+        # topic row carries its vector, so on a live tick the lower path must NOT re-pay
+        # the embedding API for articles it has already embedded. Only an uncached batch
+        # (e.g. the legacy single-pass run) hits the API.
+        has_cached = (
+            "embedding" in topics_df.columns
+            and topics_df["embedding"].apply(lambda v: isinstance(v, list)).all()
+        )
+        if has_cached:
+            print("[INFO] Reusing cached topic embeddings from the feature store.")
+        else:
+            print("[INFO] Requesting embeddings from OpenAI (Batch Mode)...")
+            # Concatenate name + description for rich semantic meaning, then embed in
+            # one single API call.
+            topics_df["text_for_embedding"] = (
+                topics_df["topic_name"] + ". " + topics_df["topic_description"]
+            )
+            texts_list = topics_df["text_for_embedding"].tolist()
+            try:
+                topics_df["embedding"] = self._generate_embeddings_batch(texts_list)
+            except Exception as e:
+                print(f"[ERROR] Failed to generate embeddings: {e}")
+                return pd.DataFrame()
 
         print("[INFO] Clustering global topics using HDBSCAN...")
         # 3. Apply HDBSCAN Clustering
@@ -136,14 +171,18 @@ class LowerPathAnalyzer(BaseAnalyzer):
 
         print("[INFO] Generating macro trends per cluster...")
 
-        # 5. Severity is local/cheap, so filter clusters above the threshold first,
-        # then generate each macro summary concurrently (one LLM call per cluster).
+        # 5. Severity is local/cheap. Gate clusters on SIZE (raw topic count) — a
+        # membership test kept separate from the weighted macro severity, so a small but
+        # fresh/credible cluster is not filtered out by a low conviction weight. Then
+        # generate each surviving macro summary concurrently (one LLM call per cluster).
+        size_threshold = int(Config["SEVERITY_THRESHOLD"])
         candidates: list[tuple[int, pd.DataFrame, float]] = []
         for cluster_id, group in clustered_df.groupby("cluster_id"):
             group = cast(pd.DataFrame, group)
+            if len(group) < size_threshold:
+                continue
             severity = self._calculate_severity(group)
-            if severity >= Config["SEVERITY_THRESHOLD"]:
-                candidates.append((int(cluster_id), group, severity))
+            candidates.append((int(cluster_id), group, severity))
 
         results = self._parallel_map(
             lambda item: self._generate_global_trend_summary(*item), candidates
@@ -197,6 +236,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
             "title": result.get("title", "Unknown"),
             "description": result.get("description", "Unknown"),
             "severity": round(severity, 2),
+            "n_topics": int(len(group)),
             "direction": result.get("direction", "neutral").lower(),
             "topic_ids": topic_ids,
         }

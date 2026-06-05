@@ -229,6 +229,9 @@ __marimo__/
 _common_metadata
 _metadata
 
+# Generated per-variant long-form trend output (not source)
+data/instrument_trends/
+
 # Sphinx documentation
 docs/_build/
 docs/build/

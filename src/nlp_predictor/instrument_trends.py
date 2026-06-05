@@ -1,10 +1,8 @@
 # Core imports
-import math
 import uuid
 from datetime import UTC, datetime
 
 import fastparquet  # noqa: F401
-import numpy as np
 import pandas as pd
 
 # Handle API and LLM
@@ -14,6 +12,12 @@ from pydantic import BaseModel, Field
 from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
 from nlp_predictor.config import Config  # type: ignore
 from nlp_predictor.prompts import PROMPTS  # type: ignore
+from nlp_predictor.severity_models import (  # type: ignore
+    REQUIRED_COLUMNS,
+    SEVERITY_REGISTRY,
+    severity_baseline,
+    severity_dcim,
+)
 
 # Load environment variables from the .env file located in the project root
 load_dotenv(override=True)
@@ -127,7 +131,40 @@ class UpperPathAnalyzer(BaseAnalyzer):
             return pd.DataFrame()
 
         self.current_time = datetime.now(UTC)
+        mapped_df = self._map_and_explode(topics_df)
+        if mapped_df.empty:
+            return pd.DataFrame()
 
+        print("[INFO] Generating trends per instrument using the DCIM model...")
+
+        def _trend_for_instrument(item: tuple[str, pd.DataFrame]) -> dict:
+            instrument, group = item
+            severity = self._calculate_instrument_severity(group)
+            return self._generate_instrument_trend(instrument, group, severity)
+
+        # Severity is local; only the trend-summary LLM call benefits from threading.
+        results = self._parallel_map(
+            _trend_for_instrument, list(mapped_df.groupby("instrument"))
+        )
+
+        return pd.DataFrame(results)
+
+    def _map_and_explode(self, topics_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Map every topic to its impacted instruments (the expensive LLM step) and explode
+        into one long row per (topic, instrument) with the columns the severity models
+        need. Shared by the single-model :meth:`process_data` and the multi-variant
+        :meth:`generate_variant_trends`, so the costly mapping runs once per tick no
+        matter how many severity variants are being compared.
+
+        Args:
+            topics_df (pd.DataFrame): Enriched topics with 'topic_name',
+                'topic_description', 'date', 'source_name' and 'source_weight'.
+
+        Returns:
+            pd.DataFrame: Long-form rows with 'instrument', 'sentiment' and the carried
+            topic/source/date columns. Empty if nothing mapped.
+        """
         print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
 
         # Each topic maps independently, so fan the LLM calls out concurrently.
@@ -166,20 +203,229 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         mapped_df["instrument"] = mapped_df["instrument"].astype(str)
         mapped_df["sentiment"] = mapped_df["sentiment"].astype(float)
+        # Severity time-decay and per-variant windowing both need tz-aware datetimes.
+        mapped_df["date"] = pd.to_datetime(mapped_df["date"], utc=True)
+        return mapped_df
 
-        print("[INFO] Generating trends per instrument using the DCIM model...")
+    def generate_variant_trends(
+        self,
+        topics_df: pd.DataFrame,
+        variants: list[dict] | None = None,
+        now: datetime | None = None,
+    ) -> pd.DataFrame:
+        """
+        Score every configured severity VARIANT over the same mapped articles and return
+        one long-form row per (variant, instrument). This is the upper-path output the
+        A/B/n consumes: each variant is a self-contained ``(model, params, window)``
+        strategy routed to its own demo account.
 
-        def _trend_for_instrument(item: tuple[str, pd.DataFrame]) -> dict:
-            instrument, group = item
-            severity = self._calculate_instrument_severity(group)
-            return self._generate_instrument_trend(instrument, group, severity)
+        The expensive work is shared, not repeated per variant: topic->instrument
+        mapping runs once (:meth:`_map_and_explode`) and the per-instrument LLM summary
+        runs once (:meth:`_summaries_by_instrument`). Only the cheap, deterministic
+        severity is recomputed per variant — over that variant's own window slice — so
+        the comparison isolates the model as the single variable.
 
-        # Severity is local; only the trend-summary LLM call benefits from threading.
-        results = self._parallel_map(
-            _trend_for_instrument, list(mapped_df.groupby("instrument"))
+        Args:
+            topics_df (pd.DataFrame): Enriched topics (same input as
+                :meth:`process_data`).
+            variants (list[dict] | None): Variant specs; defaults to
+                ``Config["SEVERITY_VARIANTS"]``. Each has 'name', 'model',
+                'window_hours' and 'params'.
+            now (datetime | None): Reference time for windowing/decay; defaults to
+                ``datetime.now(UTC)``. Injectable for deterministic tests.
+
+        Returns:
+            pd.DataFrame: Long-form trends with a 'variant' column. Empty if nothing
+            mapped or no variant had in-window articles.
+        """
+        variants = variants if variants is not None else Config["SEVERITY_VARIANTS"]
+        if topics_df.empty:
+            return pd.DataFrame()
+
+        self.current_time = now or datetime.now(UTC)
+        mapped_df = self._map_and_explode(topics_df)
+        if mapped_df.empty:
+            return pd.DataFrame()
+
+        # One LLM summary per instrument, shared across every variant (rationale only).
+        summaries = self._summaries_by_instrument(mapped_df)
+
+        rows: list[dict] = []
+        for variant in variants:
+            window_df = self._window_frame(mapped_df, variant["window_hours"])
+            if window_df.empty:
+                continue
+            context = self._variant_context(window_df)
+            model_fn = SEVERITY_REGISTRY[variant["model"]]
+            params = variant.get("params", {})
+            for instrument, group in window_df.groupby("instrument"):
+                severity = self._severity_for(model_fn, group, params, context)
+                rows.append(
+                    self._variant_trend_row(
+                        variant, str(instrument), group, severity, summaries
+                    )
+                )
+
+        print(
+            f"[INFO] Generated {len(rows)} variant trend rows across "
+            f"{len(variants)} variant(s)."
         )
+        return pd.DataFrame(rows)
 
-        return pd.DataFrame(results)
+    def score_variants(
+        self,
+        mapped_df: pd.DataFrame,
+        variants: list[dict] | None = None,
+        now: datetime | None = None,
+    ) -> pd.DataFrame:
+        """
+        Lean, LLM-free per-variant scoring over an ALREADY-MAPPED frame — the live
+        tick's hot path.
+
+        Unlike :meth:`generate_variant_trends`, this makes NO API calls: the
+        topic->instrument mapping (and the embeddings) were already paid for once when
+        the article entered the rolling feature store, so the only work per tick is the
+        cheap, deterministic severity recompute over each variant's window. It therefore
+        takes the feature store's :meth:`FeatureStore.to_instrument_frame` output (one
+        row per (topic, instrument) with ``date``/``source_name``/``sentiment``/
+        ``source_weight``/``topic_id``) rather than raw topics, and returns only the
+        columns the :class:`SignalGenerator` consumes — ``instrument``, ``severity``,
+        ``direction``, ``topic_ids`` — tagged with the variant + its provenance. Use
+        :meth:`generate_variant_trends` instead when you also want the LLM title/
+        description/llm_direction columns (offline analysis, not the tick).
+
+        Args:
+            mapped_df (pd.DataFrame): Pre-mapped long-form impacts from the feature
+                store.
+            variants (list[dict] | None): Variant specs; defaults to
+                ``Config["SEVERITY_VARIANTS"]``.
+            now (datetime | None): Reference time for windowing/decay; defaults to
+                ``datetime.now(UTC)``.
+
+        Returns:
+            pd.DataFrame: One row per (variant, instrument) with a 'variant' column.
+            Empty if nothing mapped or no variant had in-window articles.
+        """
+        variants = variants if variants is not None else Config["SEVERITY_VARIANTS"]
+        if mapped_df is None or mapped_df.empty:
+            return pd.DataFrame()
+
+        self.current_time = now or datetime.now(UTC)
+        mapped_df = mapped_df.copy()
+        # Severity time-decay and per-variant windowing both need tz-aware datetimes.
+        mapped_df["date"] = pd.to_datetime(mapped_df["date"], utc=True)
+
+        rows: list[dict] = []
+        for variant in variants:
+            window_df = self._window_frame(mapped_df, variant["window_hours"])
+            if window_df.empty:
+                continue
+            context = self._variant_context(window_df)
+            model_fn = SEVERITY_REGISTRY[variant["model"]]
+            params = variant.get("params", {})
+            for instrument, group in window_df.groupby("instrument"):
+                severity = self._severity_for(model_fn, group, params, context)
+                sev_direction = (
+                    "up" if severity > 0 else "down" if severity < 0 else "neutral"
+                )
+                rows.append(
+                    {
+                        "variant": variant["name"],
+                        "model": variant["model"],
+                        "window_hours": variant["window_hours"],
+                        "current_time": self.current_time.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
+                        "instrument": str(instrument),
+                        "severity": round(severity, 4),
+                        "direction": sev_direction,
+                        "topic_ids": group["topic_id"].tolist(),
+                    }
+                )
+
+        print(
+            f"[INFO] Scored {len(rows)} (variant, instrument) signals across "
+            f"{len(variants)} variant(s) — no LLM (cached features)."
+        )
+        return pd.DataFrame(rows)
+
+    def _window_frame(self, mapped_df: pd.DataFrame, hours: float) -> pd.DataFrame:
+        """Rows whose article date is within the last ``hours`` of ``current_time``."""
+        cutoff = self.current_time - pd.Timedelta(hours=float(hours))
+        return mapped_df[mapped_df["date"] >= cutoff]
+
+    @staticmethod
+    def _variant_context(window_df: pd.DataFrame) -> dict:
+        """
+        Cross-instrument context a model may need. Currently the baseline article count
+        for ``abnormal_volume``: the mean number of articles per instrument in this
+        window. This is the interim, cross-sectional stand-in ("abnormal vs the average
+        instrument right now") until per-instrument temporal history is collected.
+        """
+        counts = window_df.groupby("instrument").size()
+        baseline = float(counts.mean()) if len(counts) else 1.0
+        return {"baseline_count": baseline}
+
+    def _severity_for(
+        self, model_fn, group: pd.DataFrame, params: dict, context: dict
+    ) -> float:
+        """
+        Run one severity model with the shared input guard. If the columns the models
+        need are missing the signal is undefined, so return 0.0 (no trade) rather than
+        the legacy raw-count fallback, which would break the bounded [-1, 1] contract
+        the variants are compared on.
+        """
+        if group.empty:
+            return 0.0
+        if not all(col in group.columns for col in REQUIRED_COLUMNS):
+            print("[WARNING] Missing severity columns for variant; scoring 0.0.")
+            return 0.0
+        return model_fn(group, params, self.current_time, context)
+
+    def _summaries_by_instrument(self, mapped_df: pd.DataFrame) -> dict[str, dict]:
+        """LLM title/description/llm_direction per instrument, once per tick."""
+        groups = list(mapped_df.groupby("instrument"))
+        pairs = self._parallel_map(
+            lambda item: (
+                str(item[0]),
+                self._summarize_instrument(str(item[0]), item[1]),
+            ),
+            groups,
+        )
+        return dict(pairs)
+
+    def _variant_trend_row(
+        self,
+        variant: dict,
+        instrument: str,
+        group: pd.DataFrame,
+        severity: float,
+        summaries: dict[str, dict],
+    ) -> dict:
+        """Assemble one long-form trend row for a (variant, instrument) pair."""
+        summary = summaries.get(
+            instrument,
+            {"title": "Unknown", "description": "Unknown", "llm_direction": "neutral"},
+        )
+        sev_direction = (
+            "up" if severity > 0 else "down" if severity < 0 else "neutral"
+        )
+        return {
+            "variant": variant["name"],
+            "model": variant["model"],
+            "window_hours": variant["window_hours"],
+            "trend_id": str(uuid.uuid4()),
+            "current_time": self.current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "first_article_time": str(group["date"].min())[:19],
+            "newest_article_time": str(group["date"].max())[:19],
+            "instrument": instrument,
+            "title": summary["title"],
+            "description": summary["description"],
+            "severity": round(severity, 2),
+            "direction": sev_direction,
+            "llm_direction": summary["llm_direction"],
+            "topic_ids": group["topic_id"].tolist(),
+        }
 
     def _map_topic_to_instrument(self, row: pd.Series) -> list[dict]:
         """
@@ -282,12 +528,13 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
     def _severity_baseline(self, group: pd.DataFrame) -> float:
         """
-        Minimal control model for instrument severity.
+        Minimal control severity (legacy single-model path).
 
-        Sums each article's ``source_weight * sentiment``, time-decayed by the same
-        half-life as the DCIM, then squashes with tanh. Deliberately omits the echo,
-        consensus and velocity terms — this is the simplest defensible severity, kept
-        so the full DCIM can be measured against a baseline once evaluation exists.
+        Thin wrapper delegating to :func:`severity_models.severity_baseline` with the
+        hyperparameters read from the global ``DCIM_*`` Config keys. The A/B/n path
+        calls the pure function directly with per-variant params instead, so one
+        implementation backs both. Kept so existing callers (and the quantify script)
+        keep working.
 
         Args:
             group (pd.DataFrame): The articles/topics mapped to one instrument.
@@ -295,28 +542,18 @@ class UpperPathAnalyzer(BaseAnalyzer):
         Returns:
             float: Severity in [-1.0, 1.0].
         """
-        time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
-        time_diffs = np.maximum(time_diffs, 0.0)
-
-        decay_constant = np.log(2) / Config["DCIM_HALF_LIFE_HOURS"]
-        decay_factors = np.exp(-decay_constant * time_diffs)
-
-        raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
-        total_impact = float(raw_impacts.sum())
-        severity = math.tanh(Config["DCIM_KAPPA_SCALE"] * total_impact)
-        return float(np.clip(severity, -1.0, 1.0))
+        return severity_baseline(
+            group, self._dcim_params_from_config(), self.current_time
+        )
 
     def _severity_dcim(self, group: pd.DataFrame) -> float:
         """
-        Directional Confirmed Impact Model (DCIM) severity for one instrument.
+        Directional Confirmed Impact Model severity (legacy single-model path).
 
-        Processes the group through five stages: (1) exponential time decay,
-        (2) echo-chamber penalty for repeated publications from one source,
-        (3) consensus bonus when independent sources agree, (4) velocity multiplier
-        for breaking-news spikes, and (5) a tanh squash into [-1.0, 1.0]. Tuned by the
-        ``DCIM_*`` hyperparameters in Config. Assumes the required columns are present
-        (checked by the dispatcher) and uses ``self.current_time`` as the reference
-        time for article age.
+        Thin wrapper delegating to :func:`severity_models.severity_dcim` with the global
+        ``DCIM_*`` Config hyperparameters. The five-phase math now lives in
+        ``severity_models`` so one implementation backs both this path and every A/B
+        variant.
 
         Args:
             group (pd.DataFrame): The articles/topics mapped to one instrument.
@@ -324,60 +561,21 @@ class UpperPathAnalyzer(BaseAnalyzer):
         Returns:
             float: Severity in [-1.0, 1.0].
         """
-        # PHASE 1 - influence of a single article
-        time_diffs = (self.current_time - group["date"]).dt.total_seconds() / 3600.0
-        time_diffs = np.maximum(time_diffs, 0.0)
+        return severity_dcim(
+            group, self._dcim_params_from_config(), self.current_time
+        )
 
-        decay_constant = np.log(2) / Config["DCIM_HALF_LIFE_HOURS"]
-        decay_factors = np.exp(-decay_constant * time_diffs)
-
-        raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
-
-        temp_df = group.copy()
-        temp_df["raw_impact"] = raw_impacts
-        temp_df = temp_df.sort_values(by="date", ascending=False)
-
-        # PHASE 2 - echo chamber penalty
-        source_impacts = []
-        for _, s_group in temp_df.groupby("source_name"):
-            n_s = len(s_group)
-            j_indices = np.arange(n_s)
-
-            penalties = 1.0 + Config["DCIM_BETA_PENALTY"] * j_indices
-            abs_impacts = np.abs(s_group["raw_impact"].values)
-            penalized_sum = np.sum(abs_impacts / penalties)
-
-            mean_impact = s_group["raw_impact"].mean()
-            sign_s = np.sign(mean_impact) if mean_impact != 0 else 1.0
-            source_impacts.append(sign_s * penalized_sum)
-
-        source_impacts = np.array(source_impacts)
-        total_impact_sum = np.sum(source_impacts)
-
-        if total_impact_sum == 0:
-            return 0.0
-
-        # PHASE 3 - different sources bonus (consensus)
-        U = len(source_impacts)
-        if U >= 2:
-            global_sign = np.sign(total_impact_sum)
-            U_agree = np.sum(np.sign(source_impacts) == global_sign)
-            C = 1.0 + Config["DCIM_GAMMA_CONSENSUS"] * (U_agree / U)
-        else:
-            C = 1.0
-
-        # PHASE 4 - velocity
-        N_total = len(group)
-        N_recent = np.sum(time_diffs <= Config["DCIM_RECENT_WINDOW_HOURS"])
-        V = N_recent / (N_total + 1.0)
-
-        # PHASE 5 - final severity
-        inside_tanh = Config["DCIM_KAPPA_SCALE"] * C
-        inside_tanh *= 1.0 + Config["DCIM_DELTA_VELOCITY"] * V
-        inside_tanh *= total_impact_sum
-        severity = math.tanh(inside_tanh)
-
-        return float(np.clip(severity, -1.0, 1.0))
+    @staticmethod
+    def _dcim_params_from_config() -> dict:
+        """Build a severity-model params dict from the global ``DCIM_*`` Config keys."""
+        return {
+            "half_life_hours": Config["DCIM_HALF_LIFE_HOURS"],
+            "beta_penalty": Config["DCIM_BETA_PENALTY"],
+            "gamma_consensus": Config["DCIM_GAMMA_CONSENSUS"],
+            "delta_velocity": Config["DCIM_DELTA_VELOCITY"],
+            "kappa_scale": Config["DCIM_KAPPA_SCALE"],
+            "recent_window_hours": Config["DCIM_RECENT_WINDOW_HOURS"],
+        }
 
     def _generate_instrument_trend(
         self, instrument: str, group: pd.DataFrame, severity: float
@@ -403,15 +601,54 @@ class UpperPathAnalyzer(BaseAnalyzer):
             direction, and associated topic IDs.
 
         """
-        topics_context = group[["topic_name", "topic_description"]].to_dict(
-            orient="records"
-        )  # type: ignore[call-overload]
+        summary = self._summarize_instrument(instrument, group)
         topic_ids = group["topic_id"].tolist()
 
         # Derive time range from the articles' posted timestamps
         # (ISO strings sort correctly)
         first_article_time = str(group["date"].min())[:19]
         newest_article_time = str(group["date"].max())[:19]
+
+        # Direction is the deterministic sign of THIS method's own severity — the source
+        # of truth the signal trades on. The LLM summary's stated direction is retained
+        # only as a side column (``llm_direction``) for analysis/audit; it never enters
+        # the decision path, so each severity method stays self-contained and the A/B/n
+        # comparison isolates the method as the only variable.
+        sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
+
+        return {
+            "trend_id": str(uuid.uuid4()),
+            "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "first_article_time": first_article_time,
+            "newest_article_time": newest_article_time,
+            "instrument": instrument,
+            "title": summary["title"],
+            "description": summary["description"],
+            "severity": round(severity, 2),
+            "direction": sev_direction,
+            "llm_direction": summary["llm_direction"],
+            "topic_ids": topic_ids,
+        }
+
+    def _summarize_instrument(self, instrument: str, group: pd.DataFrame) -> dict:
+        """
+        Run the per-instrument LLM summary (title / description / stated direction).
+
+        Pure rationale generation, decoupled from severity so it can be computed ONCE
+        per instrument and shared across every A/B variant (see
+        :meth:`_summaries_by_instrument`) rather than re-billed per variant. Its stated
+        direction is returned as ``llm_direction``, never used in the decision path.
+
+        Args:
+            instrument (str): The ticker symbol.
+            group (pd.DataFrame): The topics mapped to this instrument.
+
+        Returns:
+            dict: ``{'title', 'description', 'llm_direction'}``.
+        """
+        topics_context = group[["topic_name", "topic_description"]].to_dict(
+            orient="records"
+        )  # type: ignore[call-overload]
 
         prompt = f"""
         You are a senior financial analyst. Analyze the following news topics related to
@@ -426,7 +663,6 @@ class UpperPathAnalyzer(BaseAnalyzer):
         try:
             parsed_result = self._call_openai_api_with_retry(prompt, InstrumentTrend)
             result = parsed_result.model_dump()
-
         except Exception as e:
             print(f"[ERROR] Trend generation failed for '{instrument}': {e}")
             result = {
@@ -436,16 +672,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
             }
 
         return {
-            "trend_id": str(uuid.uuid4()),
-            "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
-            "first_article_time": first_article_time,
-            "newest_article_time": newest_article_time,
-            "instrument": instrument,
             "title": result.get("title", "Unknown"),
             "description": result.get("description", "Unknown"),
-            "severity": round(severity, 2),
-            "direction": result.get("direction", "neutral").lower(),
-            "topic_ids": topic_ids,
+            "llm_direction": result.get("direction", "neutral").lower(),
         }
 
 

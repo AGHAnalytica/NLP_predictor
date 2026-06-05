@@ -87,13 +87,43 @@ Config = {
     "SIGNALS_SAVE_PATH_PARQUET": str(
         BASE_DIR / "data" / "test_results" / "signals_parquet"
     ),  # noqa: E501
+    # Rolling feature store: per-topic embeddings + instrument impacts, cached once
+    # per article so the expensive LLM/embedding work is reused across 15-min ticks.
+    "FEATURE_STORE_PATH": str(
+        BASE_DIR / "data" / "feature_store" / "topic_features.parquet"
+    ),  # noqa: E501
+    # Append-only signal log: one row per (tick, variant, instrument). This IS the
+    # A/B/n eval dataset — joined later to each variant's realized demo-account PnL.
+    "SIGNAL_LOG_PATH": str(
+        BASE_DIR / "data" / "signal_log" / "signals_log.parquet"
+    ),  # noqa: E501
     # =========================================================================
     # CLUSTERING PARAMETERS (Lower Path - Macro Trends)
     # =========================================================================
     # Minimum number of valid topics required for a cluster to not be rejected as noise.
+    # This is a SIZE gate (raw topic count), kept separate from the weighted macro
+    # severity below so a fresh-but-small or old-but-credible cluster is judged on
+    # membership, not on its conviction weight.
     "SEVERITY_THRESHOLD": 2,
     # Core HDBSCAN parameter: The minimum size of groupings to be considered a cluster.
     "MIN_CLUSTER_SIZE": 3,
+    # ---- Macro (cluster) severity: how each narrative is WEIGHTED for conviction ----
+    # Which model the lower path uses to score a cluster's intensity (NOT direction —
+    # the LLM sets that). The macro analogue of the upper path's SEVERITY_MODEL, and an
+    # A/B knob swept the same way:
+    #   "count"            - raw topic count (legacy; each topic weighs 1, old or fresh)
+    #   "decayed_weighted" - Σ source_weight × time_decay: a fresh, reputable narrative
+    #                        outweighs a stale, low-credibility one of the same size.
+    "MACRO_SEVERITY_MODEL": "decayed_weighted",
+    # Macro severity hyperparameters. half_life_hours is deliberately LONG vs the upper
+    # path (a regime persists longer than one instrument's news pulse); it is the A/B
+    # knob to tune. With "count" this is ignored.
+    "MACRO_SEVERITY_PARAMS": {"half_life_hours": 18.0},
+    # Lower-path (climate) lookback in hours. Pulled WIDER than the per-instrument trade
+    # horizon so HDBSCAN has the density to form stable clusters; recency is handled by
+    # the macro-severity decay above, not by this window's hard edge. Kept
+    # <= FEATURE_STORE_MAX_WINDOW_HOURS so the store always retains enough to fill it.
+    "CLIMATE_WINDOW_HOURS": 24.0,
     # =========================================================================
     # SEVERITY MODEL SELECTION (Upper Path)
     # =========================================================================
@@ -130,19 +160,129 @@ Config = {
     # "breaking/recent" for the velocity calculation.
     "DCIM_RECENT_WINDOW_HOURS": 0.5,
     # =========================================================================
+    # ROLLING FEATURE STORE / SIGNAL WINDOW
+    # =========================================================================
+    # Default lookback (hours) of cached articles fed into severity. Each A/B variant
+    # carries its OWN window_hours (below), so this is just the fallback for the legacy
+    # single-model path; the experiment varies window per variant. Set near the target
+    # ~12-16h holding horizon.
+    "SIGNAL_WINDOW_HOURS": 16.0,
+    # The longest window we ever retain in the store. Must be >= the largest variant
+    # window_hours we A/B (currently 24h), with headroom, so no variant is starved of
+    # data. Anything older is pruned on write (it can never re-enter any window again).
+    "FEATURE_STORE_MAX_WINDOW_HOURS": 36.0,
+    # =========================================================================
+    # SEVERITY VARIANTS (A/B/n across demo accounts)
+    # =========================================================================
+    # Each entry is one self-contained strategy: a registered severity model + its
+    # hyperparameters + its lookback window. Every variant is scored on the SAME cached
+    # window each tick and routed to its own demo account, so realized PnL attributes
+    # cleanly to the (model, params, window) triple.
+    #
+    # Params are tuned for ~12-16h holding positions, which drives three choices:
+    #   - window_hours ~ the holding horizon, so the signal aggregates the news the
+    #     position will actually live through (a 4h window would churn within the hold);
+    #   - half_life_hours ~ the hold too, so an article stays relevant across it rather
+    #     than decaying away after a couple of hours (intraday tuning);
+    #   - kappa lowered as the window widens — more articles -> larger impact sum ->
+    #     tanh saturates sooner, so longer windows need a gentler scale to keep range.
+    # Velocity is de-emphasised (lower delta, wider recent window) since a 12-16h hold
+    # does not care about sub-hour breaking spikes the way an intraday scalp would.
+    # These are principled STARTING points to be tuned offline against the eval, not
+    # final values.
+    "SEVERITY_VARIANTS": [
+        {
+            "name": "baseline_16h",
+            "model": "baseline",
+            "window_hours": 16.0,
+            "params": {"half_life_hours": 12.0, "kappa_scale": 0.8},
+        },
+        {
+            "name": "dcim_12h_fast",
+            "model": "dcim",
+            "window_hours": 12.0,
+            "params": {
+                "half_life_hours": 8.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.3,
+                "kappa_scale": 0.8,
+                "recent_window_hours": 1.0,
+            },
+        },
+        {
+            "name": "dcim_16h",
+            "model": "dcim",
+            "window_hours": 16.0,
+            "params": {
+                "half_life_hours": 12.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.25,
+                "kappa_scale": 0.7,
+                "recent_window_hours": 1.5,
+            },
+        },
+        {
+            "name": "dcim_24h_slow",
+            "model": "dcim",
+            "window_hours": 24.0,
+            "params": {
+                "half_life_hours": 16.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.3,
+                "delta_velocity": 0.2,
+                "kappa_scale": 0.6,
+                "recent_window_hours": 2.0,
+            },
+        },
+        {
+            "name": "dcim_16h_consensus",
+            "model": "dcim",
+            "window_hours": 16.0,
+            "params": {
+                "half_life_hours": 12.0,
+                "beta_penalty": 0.2,
+                "gamma_consensus": 0.6,
+                "delta_velocity": 0.2,
+                "kappa_scale": 0.7,
+                "recent_window_hours": 1.5,
+            },
+        },
+        {
+            "name": "abnvol_16h",
+            "model": "abnormal_volume",
+            "window_hours": 16.0,
+            "params": {"half_life_hours": 12.0, "kappa_scale": 1.0},
+        },
+    ],
+    # =========================================================================
     # SIGNAL GENERATION (Final fusion layer)
     # =========================================================================
     # |severity| below this -> NEUTRAL. The system refuses to trade weak/noisy signals.
     "SIGNAL_NEUTRAL_THRESHOLD": 0.15,
     # Base confidence is just |DCIM severity| (which already encodes article volume,
     # source weight, consensus and recency), then modulated by the macro factor below.
-    # Macro modulation: confidence *= 1 + ALIGN_BONUS*agree - CONFLICT_PENALTY*conflict,
-    # where coverage = fraction of the instrument's topics inside the macro narrative.
+    # Macro modulation: confidence *= 1 + ALIGN_BONUS*agree - CONFLICT_PENALTY*conflict.
+    # With the LLM macro overlay (primary path), agree/conflict = the instrument's
+    # climate strength x the overall climate conviction; with the legacy topic-overlap
+    # fallback they are the fraction of the instrument's topics inside the narrative.
     "SIGNAL_MACRO_ALIGN_BONUS": 0.25,
     "SIGNAL_MACRO_CONFLICT_PENALTY": 0.5,
-    # Macro veto: a strong opposing macro narrative can flip a WEAK instrument call to
-    # NEUTRAL (only when coverage >= VETO_COVERAGE and |severity| < VETO_STRENGTH_CAP).
+    # Macro veto: a strong opposing climate can flip a WEAK instrument call to NEUTRAL
+    # (only when effective conflict >= VETO_COVERAGE and |severity| < VETO_STRENGTH_CAP)
     "SIGNAL_MACRO_VETO": True,
     "SIGNAL_VETO_COVERAGE": 0.5,
     "SIGNAL_VETO_STRENGTH_CAP": 0.4,
+    # =========================================================================
+    # MACRO OVERLAY (lower path -> per-instrument climate effect)
+    # =========================================================================
+    # Climate conviction = tanh(driver-cluster macro severity / SCALE), in [0, 1]. It
+    # scales how hard the macro overlay moves confidence. Lower SCALE -> conviction
+    # saturates with fewer/smaller narratives (climate trusted sooner); higher -> needs
+    # a broader narrative before it leans on the climate. Re-tuned DOWN from 10 because
+    # the macro severity is now a decayed, source-weighted volume (weights <= 1, decay
+    # <= 1), ~3x smaller than the old raw count it replaced. A starting point to tune
+    # live, not a final value.
+    "MACRO_CONVICTION_SCALE": 4.0,
 }
