@@ -231,7 +231,12 @@ _metadata
 
 # Generated per-variant long-form trend output (not source)
 data/instrument_trends/
+data/historical/
+data/raw
 
 # Sphinx documentation
 docs/_build/
 docs/build/
+
+# Project structure
+projekt-investments.pdf
