@@ -21,7 +21,8 @@ def _generate_doc_hash(identifier: str) -> str:
     return hashlib.sha256(str(identifier).encode("utf-8")).hexdigest()[:16]
 
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CURRENT_DIR = os.path.abspath('../..')
+# CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUTPUT_PATH = os.path.join(CURRENT_DIR, "data", "historical", "alpaca_news.csv")
 
 
@@ -121,14 +122,14 @@ def fetch_alpaca_historical_news(
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         df.to_csv(output_path, index=False)
-        logger.info(f"Succesfuly saved {len(df)} historical articles to {output_path}")
+        logger.info(f"Successfully saved {len(df)} historical articles to {output_path}")
 
     return df
 
 
-if __name__ == "__main__":  # testing example values calm down..
+if __name__ == "__main__":  # testing example values calm down...
     fetch_alpaca_historical_news(
-        start_date="2024-01-01T00:00:00Z",
-        end_date="2024-06-01T00:00:00Z",
-        max_articles=100,
+        start_date="2025-01-01T00:00:00Z",
+        end_date="2025-12-31T00:00:00Z",
+        max_articles=1_000_000, # quite a lot of articles to scrap, it takes some time, but it works.
     )
