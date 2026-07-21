@@ -21,9 +21,10 @@ def _generate_doc_hash(identifier: str) -> str:
     return hashlib.sha256(str(identifier).encode("utf-8")).hexdigest()[:16]
 
 
-CURRENT_DIR = os.path.abspath('../..')
-# CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_OUTPUT_PATH = os.path.join(CURRENT_DIR, "data", "historical", "alpaca_news.csv")
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUTPUT_PATH = os.path.join(
+    CURRENT_DIR, "data", "historical", "alpaca_news.parquet"
+)
 
 
 def fetch_alpaca_historical_news(
@@ -121,8 +122,8 @@ def fetch_alpaca_historical_news(
         df = df[expected_cols]
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        df.to_csv(output_path, index=False)
-        logger.info(f"Successfully saved {len(df)} historical articles to {output_path}")
+        df.to_parquet(output_path, index=False)
+        logger.info(f"Succesfuly saved {len(df)} historical articles to {output_path}")
 
     return df
 
