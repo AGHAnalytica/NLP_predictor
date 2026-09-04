@@ -13,7 +13,7 @@ scraped articles are already cached, so topic extraction / embedding / mapping r
 for genuinely NEW articles. An article seen on 16 consecutive ticks is processed on
 exactly one of them.
 
-Pipeline (Grupa 1 -> Grupa 2 -> cache)::
+Pipeline (Group 1 -> Group 2 -> cache)::
 
     scrape -> drop already-cached doc_hashes -> extract topics (new only)
            -> enrich (publisher + credibility) -> embed + map (the two cached features)
@@ -30,10 +30,10 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from nlp_predictor.config import Config  # type: ignore
-from nlp_predictor.feature_store import FeatureStore
+from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
-from nlp_predictor.topic_extractor import TopicExtractor
+from nlp_predictor.topic.topic_extractor import TopicExtractor
 
 
 class FeatureIngestor:
@@ -78,7 +78,7 @@ class FeatureIngestor:
         Cache the features for every NEW scraped article, skipping the already-cached.
 
         Args:
-            articles_df (pd.DataFrame): Scraped articles (Grupa 1). Needs ``doc_hash``,
+            articles_df (pd.DataFrame): Scraped articles (Group 1). Needs ``doc_hash``,
                 a publisher column (``source_name`` or ``source``), ``date``, ``title``
                 and ``content``.
             now (datetime | None): Reference time for the store's prune step;
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     print("====== FeatureIngestor Module Test ======")
     from dotenv import load_dotenv
 
-    from nlp_predictor.scraper_runner import run_real_scrapers
+    from nlp_predictor.scraping.scrape_runner import run_real_scrapers
 
     load_dotenv(override=True)
     try:

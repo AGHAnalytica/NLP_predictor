@@ -8,20 +8,20 @@ the analysis pipeline.
 
 The prompts are organized into three primary operational stages:
 
-* **Topic Extraction (Grupa 2)**:
+* **Topic Extraction (Group 2)**:
   Instructs the LLM to act as a financial news extractor, parsing raw article
   titles and content into discrete, market-moving events (topics). It enforces
   strict granularity rules (avoiding sub-fact splitting) and filters out non-events
   (like journalists' names).
 
-* **Instrument Trends (Upper Path / Grupa 3)**:
+* **Instrument Trends (Upper Path / Group 3)**:
   Instructs the LLM to act as a quantitative analyst, mapping previously extracted
   topics to specific financial instruments. It enforces a strict distinction between
   specific events (mapped to individual tickers) and broad macro events (mapped to
   indexes/FX), preventing the double-counting of general market sentiment. It also
   requires scoring the sentiment on a fixed discrete scale (-1.0 to +1.0).
 
-* **Global Trends (Lower Path / Grupa 4)**:
+* **Global Trends (Lower Path / Group 4)**:
   Instructs the LLM to act as a Chief Economist, synthesizing a mathematically
   grouped cluster of semantically similar topics (from HDBSCAN) into a single,
   coherent macroeconomic narrative, determining its broad market direction.
@@ -35,7 +35,7 @@ PROMPTS = {
     # These are the prompt templates for the OpenAI API calls, stored in a dictionary
     # for easy access.
     # ============================
-    # Topic Extraction Prompt (Grupa 2)
+    # Topic Extraction Prompt (Group 2)
     # ============================
     "topic_extraction": """
         You are a financial news analyst. Your ONLY job is to read the article below

@@ -1,7 +1,7 @@
 """
 Macro overlay — the bridge between the lower path's broad CLIMATE and each instrument.
 
-The lower path (Grupa 4) answers "w jakim otoczeniu" — is the world risk-on or fleeing
+The lower path (Group 4) answers "w jakim otoczeniu" — is the world risk-on or fleeing
 to safety. The job here is to turn that one climate into a per-instrument effect so the
 final signal can be modulated with context: a call that rides the climate is more
 trustworthy, one that fights it is less (a good long still falls in a panic).

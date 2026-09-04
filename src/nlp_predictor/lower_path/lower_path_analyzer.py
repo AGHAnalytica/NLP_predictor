@@ -1,36 +1,4 @@
-# Core imports
-import uuid
-from datetime import UTC, datetime
-from typing import cast
-
-import fastparquet  # noqa: F401
-import numpy as np
-import pandas as pd
-
-# Handle API and LLM
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from sklearn.cluster import HDBSCAN
-
-from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
-from nlp_predictor.config import Config  # type: ignore
-from nlp_predictor.prompts import PROMPTS  # type: ignore
-from nlp_predictor.severity_models import MACRO_SEVERITY_REGISTRY  # type: ignore
-
-# Load environment variables from the .env file located in the project root
-load_dotenv(override=True)
-
-
-class GlobalTrend(BaseModel):
-    """
-    Pydantic model for parsing the output of the global trend summary from OpenAI.
-    """
-
-    title: str = Field(description="Short summary of the global macroeconomic trend.")
-    description: str = Field(
-        description="Detailed explanation of the trend and its global impact."
-    )
-    direction: str = Field(description="One of: 'up', 'down', 'neutral'.")
+from ..base_analyzer import BaseAnalyzer
 
 
 class LowerPathAnalyzer(BaseAnalyzer):
@@ -240,32 +208,3 @@ class LowerPathAnalyzer(BaseAnalyzer):
             "direction": result.get("direction", "neutral").lower(),
             "topic_ids": topic_ids,
         }
-
-
-if __name__ == "__main__":
-    print("====== LowerPathAnalyzer Module Test ======")
-    try:
-        lower_path_analyzer = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
-        df_topics = pd.read_csv(Config["TOPICS_PATH"])
-
-        result = lower_path_analyzer.process_data(df_topics)
-        print("====== Processing Lower Path Completed ======")
-
-        print("====== Saving Results To File ======")
-        saving_result = LowerPathAnalyzer.save_trends(
-            result, Config["GLOBAL_TRENDS_SAVE_PATH_PARQUET"]
-        )
-        if saving_result:
-            print("====== Saving Completed ======")
-        else:
-            print("====== Saving Failed ======")
-
-        # For debugging: save the result to a CSV as well
-        # (not required, but useful for quick checks)
-        result.to_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"], index=False)
-        print(
-            "[DEBUG] Also saved results to CSV for"
-            + f" quick inspection at {Config['GLOBAL_TRENDS_SAVE_PATH_CSV']}"
-        )
-    except Exception as e:
-        print(f"[FATAL ERROR] An error occurred during the LowerPathAnalyzer test: {e}")

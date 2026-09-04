@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 
-from nlp_predictor.severity_models import (
+from nlp_predictor.lower_path.severity_models import (
     MACRO_SEVERITY_REGISTRY,
     macro_severity_count,
     macro_severity_decayed,

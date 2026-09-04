@@ -14,12 +14,12 @@ import pathlib
 import pandas as pd
 from dotenv import load_dotenv
 
-from nlp_predictor.config import BASE_DIR, Config
+from nlp_predictor.config import REPO_ROOT, Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.main import _enrich_topics_for_upper_path
-from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.topic_extractor import TopicExtractor
+from nlp_predictor.signal.signal_generator import SignalGenerator
+from nlp_predictor.topic.topic_extractor import TopicExtractor
 
 load_dotenv(override=True)
 
@@ -31,7 +31,7 @@ REFRESH_DATES = True
 
 
 def _out(name: str) -> str:
-    return str(BASE_DIR / "data" / "test_results" / name)
+    return str(REPO_ROOT / "data" / "test_results" / name)
 
 
 def _refresh_dates(topics: pd.DataFrame) -> pd.DataFrame:
@@ -46,7 +46,7 @@ def _refresh_dates(topics: pd.DataFrame) -> pd.DataFrame:
 def main() -> None:
     # Point the whole pipeline at the larger corpus (also used by the enrich step).
     Config["ARTICLES_PATH"] = str(
-        BASE_DIR / "data" / "scraping" / "articles_sample_large.csv"
+        REPO_ROOT / "data" / "scraping" / "articles_sample_large.csv"
     )
     pd.set_option("display.width", 200)
     pd.set_option("display.max_colwidth", 70)

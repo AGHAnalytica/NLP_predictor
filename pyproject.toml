@@ -3,17 +3,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "NLP_predictor"
+name = "nlp_predictor"
 dynamic = ["version"]
 description = "NLP system for market prediction"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "LICENSE"
 
 # Individual contributors
 authors = [
     { name = "Norbert Jarzmik", email = "" },
-    { name = "Rafał Mazur", email = "" },
+    { name = "Rafał Mazur", email = "rafalmazur.w@gmail.com" },
     { name = "Konrad Zatorski", email = "kodiz2005@gmail.com" },
     { name = "Filip Wojtczak", email = "" },
     { name = "Wojciech Kocemba", email = "" },
@@ -42,7 +42,7 @@ dependencies = [
     "pandas>=3.0.3",
     "openai>=2.38.0",
     "python-dotenv>=1.2.2",
-    # Grupa 1 (scraping & preprocessing) toolchain
+    # Group 1 (scraping & preprocessing) toolchain
     "trafilatura>=2.0.0",
     "dateparser>=1.4.0",
     "pytz>=2026.2",

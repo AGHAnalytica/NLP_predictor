@@ -13,63 +13,18 @@ from nlp_predictor.prompts import PROMPTS
 load_dotenv(override=True)
 
 
-# Pydantic schemas for strict, parseable LLM output
-class ExtractedTopic(BaseModel):
-    """
-    A single market-relevant topic extracted from an article. The LLM is prompted to
-    find topics that are relevant for financial markets, so the ``topic_name``
-    should be a concise label for a specific event, phenomenon, or trend
-    (e.g. "Strait of Hormuz Reopening"), and the ``topic_description`` should be a brief
-    explanation of what the topic is about, based solely on the article's content.
-    The description may include a general note on market relevance or likely direction,
-    but it must NOT name specific financial instruments or give buy/sell advice, to
-    keep the topic extraction stage focused on identifying events rather than making
-    trading recommendations. The output contract for the topic extractor is a list of
-    these topics per article, which are then fed into the upper and lower paths for
-    further analysis and ultimately contribute to the final trading signal.
-    """
-
-    name: str = Field(
-        description="Short, specific event/phenomenon name "
-        "(e.g. 'Strait of Hormuz Reopening'). NOT a person or a news outlet."
-    )
-    description: str = Field(
-        description="2-3 sentences describing what is happening, based on the article. "
-        "May include a brief, general note on market relevance or likely direction, "
-        "but must NOT name specific instruments/tickers or give buy/sell advice."
-    )
-
-
-class ExtractedTopics(BaseModel):
-    """
-    Container for the list of topics extracted from one article. The LLM is prompted to
-    return a list of market-relevant topics, each with a name and description, and this
-    schema captures that structured output. The topic extractor's output contract is a
-    list of these topics per article, which are then fed into the upper and lower paths
-    for further analysis and ultimately contribute to the final trading signal.
-    If the article contains no market-relevant events, the LLM is prompted to return an
-    empty list, which is also valid output for this schema. This design allows the topic
-    extractor to focus solely on identifying and describing events, without making
-    trading recommendations, which are handled in later stages of the pipeline.
-    """
-
-    topics: list[ExtractedTopic] = Field(
-        description="Market-relevant topics found in the article. Empty if none."
-    )
-
-
 class TopicExtractor(BaseAnalyzer):
     """
-    Grupa 2 — Topic extraction.
+    Group 2 — Topic extraction.
 
-    Reads the cleaned article table produced by Grupa 1 (scraping & preprocessing)
+    Reads the cleaned article table produced by Group 1 (scraping & preprocessing)
     and, for every article, asks the LLM for a list of market-relevant topics.
     The result is the canonical ``topics`` DataFrame that BOTH the upper path
     (instrument trends) and the lower path (global trends) consume.
 
     Output contract (one row per topic):
         - topic_id (str)          : unique uuid
-        - doc_hash (str)          : FK to the source article (Grupa 1)
+        - doc_hash (str)          : FK to the source article (Group 1)
         - topic_name (str)        : short topic title
         - topic_description (str) : 2-3 sentence explanation
         - date (datetime/str)     : copied from the source article
@@ -89,7 +44,7 @@ class TopicExtractor(BaseAnalyzer):
     def process_data(self, articles_df: pd.DataFrame) -> pd.DataFrame:
         """
         Pipeline entry point (BaseAnalyzer interface). Delegates to
-        :meth:`extract_topics`. ``articles_df`` is the Grupa 1 output, not a topics
+        :meth:`extract_topics`. ``articles_df`` is the Group 1 output, not a topics
         table, hence the dedicated alias for readability. The main logic is in
         ``extract_topics()``, which iterates over the articles and calls
         ``_extract_from_article()`` for each one to get its topics. The resulting
@@ -126,7 +81,7 @@ class TopicExtractor(BaseAnalyzer):
         batch.
 
         Args:
-            articles_df (pd.DataFrame): Grupa 1 output. Expected columns include
+            articles_df (pd.DataFrame): Group 1 output. Expected columns include
                 ``doc_hash``, ``title``, ``content`` and a date column
                 (``date`` or ``scrape_date``).
 

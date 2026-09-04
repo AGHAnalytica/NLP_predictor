@@ -41,7 +41,7 @@ Attributes:
 
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 Config = {
     # =========================================================================
@@ -54,48 +54,48 @@ Config = {
     # =========================================================================
     # FILE PATHS
     # =========================================================================
-    "BASE_DIR": BASE_DIR,
+    "BASE_DIR": REPO_ROOT,
     # Input data paths
     "INSTRUMENT_PATH": str(
-        BASE_DIR / "data" / "instruments" / "instruments_sample.csv"
+        REPO_ROOT / "data" / "instruments" / "instruments_sample.csv"
     ),  # noqa: E501
-    "TOPICS_PATH": str(BASE_DIR / "data" / "topics" / "topics_sample_large.csv"),  # noqa: E501
-    "ARTICLES_PATH": str(BASE_DIR / "data" / "scraping" / "articles_sample.csv"),  # noqa: E501
-    "WEIGHTS_PATH": str(BASE_DIR / "data" / "scraping" / "source_weights_sample.csv"),  # noqa: E501
+    "TOPICS_PATH": str(REPO_ROOT / "data" / "topics" / "topics_sample_large.csv"),  # noqa: E501
+    "ARTICLES_PATH": str(REPO_ROOT / "data" / "scraping" / "articles_sample.csv"),  # noqa: E501
+    "WEIGHTS_PATH": str(REPO_ROOT / "data" / "scraping" / "source_weights_sample.csv"),  # noqa: E501
     # Output save paths (Parquet format is strictly enforced for databases)
     "TOPICS_SAVE_PATH_CSV": str(
-        BASE_DIR / "data" / "test_results" / "topics_report.csv"
+        REPO_ROOT / "data" / "test_results" / "topics_report.csv"
     ),  # noqa: E501
     "TOPICS_SAVE_PATH_PARQUET": str(
-        BASE_DIR / "data" / "test_results" / "topics_parquet"
+        REPO_ROOT / "data" / "test_results" / "topics_parquet"
     ),  # noqa: E501
     "GLOBAL_TRENDS_SAVE_PATH_CSV": str(
-        BASE_DIR / "data" / "test_results" / "global_trends_report.csv"
+        REPO_ROOT / "data" / "test_results" / "global_trends_report.csv"
     ),  # noqa: E501
     "GLOBAL_TRENDS_SAVE_PATH_PARQUET": str(
-        BASE_DIR / "data" / "test_results" / "global_trends_parquet"
+        REPO_ROOT / "data" / "test_results" / "global_trends_parquet"
     ),  # noqa: E501
     "INSTRUMENT_TRENDS_SAVE_PATH_CSV": str(
-        BASE_DIR / "data" / "test_results" / "instrument_trends_report.csv"
+        REPO_ROOT / "data" / "test_results" / "instrument_trends_report.csv"
     ),  # noqa: E501
     "INSTRUMENT_TRENDS_SAVE_PATH_PARQUET": str(
-        BASE_DIR / "data" / "test_results" / "instrument_trends_parquet"
+        REPO_ROOT / "data" / "test_results" / "instrument_trends_parquet"
     ),  # noqa: E501
     "SIGNALS_SAVE_PATH_CSV": str(
-        BASE_DIR / "data" / "test_results" / "signals_report.csv"
+        REPO_ROOT / "data" / "test_results" / "signals_report.csv"
     ),  # noqa: E501
     "SIGNALS_SAVE_PATH_PARQUET": str(
-        BASE_DIR / "data" / "test_results" / "signals_parquet"
+        REPO_ROOT / "data" / "test_results" / "signals_parquet"
     ),  # noqa: E501
     # Rolling feature store: per-topic embeddings + instrument impacts, cached once
     # per article so the expensive LLM/embedding work is reused across 15-min ticks.
     "FEATURE_STORE_PATH": str(
-        BASE_DIR / "data" / "feature_store" / "topic_features.parquet"
+        REPO_ROOT / "data" / "feature_store" / "topic_features.parquet"
     ),  # noqa: E501
     # Append-only signal log: one row per (tick, variant, instrument). This IS the
     # A/B/n eval dataset — joined later to each variant's realized demo-account PnL.
     "SIGNAL_LOG_PATH": str(
-        BASE_DIR / "data" / "signal_log" / "signals_log.parquet"
+        REPO_ROOT / "data" / "signal_log" / "signals_log.parquet"
     ),  # noqa: E501
     # =========================================================================
     # CLUSTERING PARAMETERS (Lower Path - Macro Trends)

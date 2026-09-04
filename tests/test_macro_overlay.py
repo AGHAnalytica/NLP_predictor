@@ -9,7 +9,7 @@ import math
 import pandas as pd
 
 from nlp_predictor.config import Config
-from nlp_predictor.macro_overlay import (
+from nlp_predictor.lower_path.macro_overlay import (
     MacroOverlay,
     MacroOverlayAnalyzer,
     _InstrumentEffect,

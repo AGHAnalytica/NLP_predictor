@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
-from nlp_predictor.feature_store import FeatureStore
-from nlp_predictor.ingestion import FeatureIngestor
+from nlp_predictor.preprocessing.feature_store import FeatureStore
+from nlp_predictor.preprocessing.ingestion import FeatureIngestor
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 

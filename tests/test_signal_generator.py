@@ -6,7 +6,7 @@ the signal or confidence (otherwise the A/B/n across severity methods is confoun
 
 import pandas as pd
 
-from nlp_predictor.signal_generator import SignalGenerator
+from nlp_predictor.signal.signal_generator import SignalGenerator
 
 
 def _trend(instrument, severity, direction, topic_ids=("t1",)):

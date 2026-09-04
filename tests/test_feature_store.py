@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 
-from nlp_predictor.feature_store import FeatureStore
+from nlp_predictor.preprocessing.feature_store import FeatureStore
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 

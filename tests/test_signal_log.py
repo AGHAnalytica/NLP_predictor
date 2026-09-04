@@ -8,7 +8,7 @@ empty/no-op guard. Uses a tmp parquet path so nothing touches the real log.
 
 import pandas as pd
 
-from nlp_predictor.signal_log import SignalLog
+from nlp_predictor.signal.signal_log import SignalLog
 
 
 def _log(tmp_path):

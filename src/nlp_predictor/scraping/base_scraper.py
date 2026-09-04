@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 import requests
-from src.nlp_predictor.cleaner import (
+from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
     is_valid_article,

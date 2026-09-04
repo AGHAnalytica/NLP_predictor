@@ -2,31 +2,33 @@ import logging
 import xml.etree.ElementTree as ET
 
 import pandas as pd
-from src.nlp_predictor.base import BaseScraper
+from nlp_predictor.scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
 
-class BBCScraper(BaseScraper):
+class CNBCScraper(BaseScraper):
     """
-    Scraper for BBC News using official RSS feeds.
+    Scraper for CNBC news using official RSS feeds.
     Extracts metadata from RSS and fetches full article content.
-    Targets Business and Science/Environment sections.
+    Filters out CNBC Pro (paid) articles.
     """
 
     def __init__(self, history_file: str = "data/scraped_history.parquet"):
         super().__init__(history_file)
 
         self.rss_feeds = [
-            "http://feeds.bbci.co.uk/news/business/rss.xml",
-            "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+            "https://www.cnbc.com/id/19836768/device/rss/rss.html",
+            "https://www.cnbc.com/id/10000664/device/rss/rss.html",
         ]
 
     def run(self) -> pd.DataFrame:
         """
-        Main loop for BBC.
-        Returns a Pandas DataFrame with new articles cleaned up. If no new articles are
-        found, returns an empty DataFrame with the correct columns.
+        Main loop.
+        Returns a Pandas DataFrame with new articles cleaned up.
+        If no new articles are found, returns an empty DataFrame with the correct
+        columns. Returns an empty DataFrame with the correct columns if no new articles
+        are found.
         Articles are filtered for duplicates and media content before processing.
         Fetches full HTML for each article to extract content and metadata, then passes
         through the cleaner pipeline defined in process_article().
@@ -60,8 +62,8 @@ class BBCScraper(BaseScraper):
                     article_url = article_url.strip()
                     raw_date = raw_date.strip()
 
-                    if "/av/" in article_url or "bbc.co.uk/sounds" in article_url:
-                        logger.debug(f"Skipped media content: {article_url}")
+                    if "cnbc.com/pro/" in article_url:
+                        logger.debug(f"Skipped paid CNBC Pro article: {article_url}")
                         continue
 
                     if self.is_duplicate(doc_hash="", url=article_url):
@@ -77,7 +79,7 @@ class BBCScraper(BaseScraper):
                         continue
 
                     processed = self.process_article(
-                        source="BBC",
+                        source="CNBC",
                         url=article_url,
                         raw_title=raw_title,
                         raw_date=raw_date,
@@ -91,7 +93,7 @@ class BBCScraper(BaseScraper):
                 logger.error(f"XML parsing error for {rss_url}: {e}")
 
         self.save_history()
-        logger.info(f"BBCScraper finished. Fetched {len(articles_data)} new articles.")
+        logger.info(f"CNBCScraper finished. Fetched {len(articles_data)} new articles.")
 
         expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 

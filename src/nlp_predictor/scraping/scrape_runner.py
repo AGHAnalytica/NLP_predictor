@@ -2,9 +2,9 @@ import logging
 
 import pandas as pd
 
-from nlp_predictor.apnews import APNewsScraper
-from nlp_predictor.bbcb import BBCScraper
-from nlp_predictor.cnbc import CNBCScraper
+from nlp_predictor.scraping.apnews_scraper import APNewsScraper
+from nlp_predictor.scraping.bbc_scraper import BBCScraper
+from nlp_predictor.scraping.cnbc_scraper import CNBCScraper
 
 logger = logging.getLogger(__name__)
 

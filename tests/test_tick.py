@@ -11,11 +11,11 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
-from nlp_predictor.feature_store import FeatureStore
+from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
-from nlp_predictor.macro_overlay import MacroOverlay
-from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.signal_log import SignalLog
+from nlp_predictor.lower_path.macro_overlay import MacroOverlay
+from nlp_predictor.signal.signal_generator import SignalGenerator
+from nlp_predictor.signal.signal_log import SignalLog
 from nlp_predictor.tick import TickRunner
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
