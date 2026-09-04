@@ -1,0 +1,61 @@
+# =========================================================================
+# SEVERITY VARIANTS (A/B/n across demo accounts)
+# =========================================================================
+severity_variants:
+  - name: "baseline_16h"
+    model: "baseline"
+    window_hours: 16.0
+    params:
+      half_life_hours: 12.0
+      kappa_scale: 0.8
+      
+  - name: "dcim_12h_fast"
+    model: "dcim"
+    window_hours: 12.0
+    params:
+      half_life_hours: 8.0
+      beta_penalty: 0.2
+      gamma_consensus: 0.3
+      delta_velocity: 0.3
+      kappa_scale: 0.8
+      recent_window_hours: 1.0
+      
+  - name: "dcim_16h"
+    model: "dcim"
+    window_hours: 16.0
+    params:
+      half_life_hours: 12.0
+      beta_penalty: 0.2
+      gamma_consensus: 0.3
+      delta_velocity: 0.25
+      kappa_scale: 0.7
+      recent_window_hours: 1.5
+      
+  - name: "dcim_24h_slow"
+    model: "dcim"
+    window_hours: 24.0
+    params:
+      half_life_hours: 16.0
+      beta_penalty: 0.2
+      gamma_consensus: 0.3
+      delta_velocity: 0.2
+      kappa_scale: 0.6
+      recent_window_hours: 2.0
+      
+  - name: "dcim_16h_consensus"
+    model: "dcim"
+    window_hours: 16.0
+    params:
+      half_life_hours: 12.0
+      beta_penalty: 0.2
+      gamma_consensus: 0.6
+      delta_velocity: 0.2
+      kappa_scale: 0.7
+      recent_window_hours: 1.5
+      
+  - name: "abnvol_16h"
+    model: "abnormal_volume"
+    window_hours: 16.0
+    params:
+      half_life_hours: 12.0
+      kappa_scale: 1.0

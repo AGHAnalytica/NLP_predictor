@@ -1,0 +1,43 @@
+# =========================================================================
+# MODELS
+# =========================================================================
+llm_model: "gpt-5-nano"
+embedding_model: "text-embedding-3-small"
+severity_model: "dcim"
+
+# =========================================================================
+# CLUSTERING PARAMETERS (Lower Path - Macro Trends)
+# =========================================================================
+severity_threshold: 2
+min_cluster_size: 3
+macro_severity_model: "decayed_weighted"
+macro_severity_params:
+  half_life_hours: 18.0
+climate_window_hours: 24.0
+
+# =========================================================================
+# DCIM HYPERPARAMETERS (Upper Path)
+# =========================================================================
+dcim_half_life_hours: 4.0
+dcim_beta_penalty: 0.2
+dcim_gamma_consensus: 0.3
+dcim_delta_velocity: 0.3
+dcim_kappa_scale: 1.0
+dcim_recent_window_hours: 0.5
+
+# =========================================================================
+# WINDOWS
+# =========================================================================
+signal_window_hours: 16.0
+feature_store_max_window_hours: 36.0
+
+# =========================================================================
+# SIGNAL GENERATION & FUSION
+# =========================================================================
+signal_neutral_threshold: 0.15
+signal_macro_align_bonus: 0.25
+signal_macro_conflict_penalty: 0.5
+signal_macro_veto: true
+signal_veto_coverage: 0.5
+signal_veto_strength_cap: 0.4
+macro_conviction_scale: 4.0

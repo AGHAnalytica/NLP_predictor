@@ -1,0 +1,25 @@
+# =========================================================================
+# INPUT DATA
+# =========================================================================
+instrument_path: "data/instruments/instruments_sample.csv"
+topics_path: "data/topics/topics_sample_large.csv"
+articles_path: "data/scraping/articles_sample.csv"
+weights_path: "data/scraping/source_weights_sample.csv"
+
+# =========================================================================
+# OUTPUT DATA (Test Results)
+# =========================================================================
+topics_save_path_csv: "data/test_results/topics_report.csv"
+topics_save_path_parquet: "data/test_results/topics_parquet"
+global_trends_save_path_csv: "data/test_results/global_trends_report.csv"
+global_trends_save_path_parquet: "data/test_results/global_trends_parquet"
+instrument_trends_save_path_csv: "data/test_results/instrument_trends_report.csv"
+instrument_trends_save_path_parquet: "data/test_results/instrument_trends_parquet"
+signals_save_path_csv: "data/test_results/signals_report.csv"
+signals_save_path_parquet: "data/test_results/signals_parquet"
+
+# =========================================================================
+# DATABASES & LOGS
+# =========================================================================
+feature_store_path: "data/feature_store/topic_features.parquet"
+signal_log_path: "data/signal_log/signals_log.parquet"
