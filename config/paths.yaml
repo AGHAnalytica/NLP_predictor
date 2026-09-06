@@ -1,25 +1,23 @@
-# =========================================================================
-# INPUT DATA
-# =========================================================================
-instrument_path: "data/instruments/instruments_sample.csv"
-topics_path: "data/topics/topics_sample_large.csv"
-articles_path: "data/scraping/articles_sample.csv"
-weights_path: "data/scraping/source_weights_sample.csv"
+paths:
+  input:
+    instruments: "data/instruments/instruments_sample.csv"
+    topics: "data/topics/topics_sample_large.csv"
+    articles: "data/scraping/articles_sample.csv"
+    weights: "data/scraping/source_weights_sample.csv"
 
-# =========================================================================
-# OUTPUT DATA (Test Results)
-# =========================================================================
-topics_save_path_csv: "data/test_results/topics_report.csv"
-topics_save_path_parquet: "data/test_results/topics_parquet"
-global_trends_save_path_csv: "data/test_results/global_trends_report.csv"
-global_trends_save_path_parquet: "data/test_results/global_trends_parquet"
-instrument_trends_save_path_csv: "data/test_results/instrument_trends_report.csv"
-instrument_trends_save_path_parquet: "data/test_results/instrument_trends_parquet"
-signals_save_path_csv: "data/test_results/signals_report.csv"
-signals_save_path_parquet: "data/test_results/signals_parquet"
+  output:
+    topics_csv: "data/test_results/topics_report.csv"
+    topics_parquet: "data/test_results/topics_parquet"
+    global_trends_csv: "data/test_results/global_trends_report.csv"
+    global_trends_parquet: "data/test_results/global_trends_parquet"
+    instrument_trends_csv: "data/test_results/instrument_trends_report.csv"
+    instrument_trends_parquet: "data/test_results/instrument_trends_parquet"
+    signals_csv: "data/test_results/signals_report.csv"
+    signals_parquet: "data/test_results/signals_parquet"
 
-# =========================================================================
-# DATABASES & LOGS
-# =========================================================================
-feature_store_path: "data/feature_store/topic_features.parquet"
-signal_log_path: "data/signal_log/signals_log.parquet"
+  logs:
+    signal_log: "data/signal_log/signals_log.parquet"
+    log: "logs/{date}.log"
+
+  cache:
+    feature_store: "data/feature_store/topic_features.parquet"
