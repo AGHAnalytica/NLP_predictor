@@ -325,8 +325,10 @@ class SignalGenerator:
         strength = max(0.0, min(1.0, float(entry.get("strength", 0.0))))
         title = str(entry.get("rationale", "macro climate"))
         effect_dir = (
-            "up" if effect == "tailwind"
-            else "down" if effect == "headwind"
+            "up"
+            if effect == "tailwind"
+            else "down"
+            if effect == "headwind"
             else "neutral"
         )
 

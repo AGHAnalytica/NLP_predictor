@@ -1,3 +1,24 @@
+import uuid
+from datetime import UTC, datetime
+
+import pandas as pd
+
+from nlp_predictor.base_analyzer import BaseAnalyzer
+from nlp_predictor.config import Config
+from nlp_predictor.instrument import (
+    InstrumentMapping,
+    InstrumentTrend,
+    _quantize_sentiment,
+)
+from nlp_predictor.lower_path.severity_models import (
+    REQUIRED_COLUMNS,
+    SEVERITY_REGISTRY,
+    severity_baseline,
+    severity_dcim,
+)
+from nlp_predictor.prompts import PROMPTS
+
+
 class UpperPathAnalyzer(BaseAnalyzer):
     """
     This class encapsulates the logic for processing the upper path of the data
@@ -258,9 +279,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
                         "variant": variant["name"],
                         "model": variant["model"],
                         "window_hours": variant["window_hours"],
-                        "current_time": self.current_time.strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
+                        "current_time": self.current_time.strftime("%Y-%m-%d %H:%M:%S"),
                         "instrument": str(instrument),
                         "severity": round(severity, 4),
                         "direction": sev_direction,
@@ -332,9 +351,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             instrument,
             {"title": "Unknown", "description": "Unknown", "llm_direction": "neutral"},
         )
-        sev_direction = (
-            "up" if severity > 0 else "down" if severity < 0 else "neutral"
-        )
+        sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
         return {
             "variant": variant["name"],
             "model": variant["model"],
@@ -486,9 +503,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         Returns:
             float: Severity in [-1.0, 1.0].
         """
-        return severity_dcim(
-            group, self._dcim_params_from_config(), self.current_time
-        )
+        return severity_dcim(group, self._dcim_params_from_config(), self.current_time)
 
     @staticmethod
     def _dcim_params_from_config() -> dict:

@@ -24,13 +24,16 @@ class _FakeExtractor:
 
     def extract_topics(self, articles_df):
         self.seen_doc_hashes = list(articles_df["doc_hash"].astype(str))
-        rows = [{
-            "topic_id": f"top-{a['doc_hash']}",
-            "doc_hash": a["doc_hash"],
-            "topic_name": "AI capex",
-            "topic_description": "desc",
-            "date": a["date"],
-        } for _, a in articles_df.iterrows()]
+        rows = [
+            {
+                "topic_id": f"top-{a['doc_hash']}",
+                "doc_hash": a["doc_hash"],
+                "topic_name": "AI capex",
+                "topic_description": "desc",
+                "date": a["date"],
+            }
+            for _, a in articles_df.iterrows()
+        ]
         return pd.DataFrame(rows)
 
 
@@ -53,13 +56,16 @@ class _FakeLower:
 
 
 def _articles(n=2, start=0):
-    rows = [{
-        "doc_hash": f"h{start + i}",
-        "source_name": "Bloomberg",
-        "date": NOW - timedelta(hours=i + 1),
-        "title": "t",
-        "content": "c",
-    } for i in range(n)]
+    rows = [
+        {
+            "doc_hash": f"h{start + i}",
+            "source_name": "Bloomberg",
+            "date": NOW - timedelta(hours=i + 1),
+            "title": "t",
+            "content": "c",
+        }
+        for i in range(n)
+    ]
     return pd.DataFrame(rows)
 
 
@@ -68,8 +74,9 @@ def _ingestor(tmp_path, store=None, extractor=None):
     pd.DataFrame([{"source_name": "Bloomberg", "source_weight": 0.9}]).to_csv(
         weights, index=False
     )
-    store = store or FeatureStore(path=str(tmp_path / "fs" / "feat.parquet"),
-                                  max_window_hours=36.0)
+    store = store or FeatureStore(
+        path=str(tmp_path / "fs" / "feat.parquet"), max_window_hours=36.0
+    )
     return FeatureIngestor(
         store=store,
         extractor=extractor or _FakeExtractor(),

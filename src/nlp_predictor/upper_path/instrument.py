@@ -1,23 +1,10 @@
 # Core imports
-import uuid
-from datetime import UTC, datetime
 
 import fastparquet  # noqa: F401
-import pandas as pd
 
 # Handle API and LLM
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-
-from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
-from nlp_predictor.config import Config  # type: ignore
-from nlp_predictor.prompts import PROMPTS  # type: ignore
-from nlp_predictor.lower_path.severity_models import (  # type: ignore
-    REQUIRED_COLUMNS,
-    SEVERITY_REGISTRY,
-    severity_baseline,
-    severity_dcim,
-)
 
 # Load environment variables from the .env file located in the project root
 load_dotenv(override=True)
@@ -62,7 +49,8 @@ class InstrumentMapping(BaseModel):
 
 
 class InstrumentTrend(BaseModel):
-    """Pydantic model for parsing the output of the instrument trend summary from OpenAI.
+    """
+    Pydantic model for parsing the output of the instrument trend summary from OpenAI.
     """
 
     title: str = Field(description="Short summary of the trend.")

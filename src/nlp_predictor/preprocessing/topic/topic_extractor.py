@@ -3,7 +3,7 @@ from typing import cast
 
 import pandas as pd
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from nlp_predictor.topic.topic import ExtractedTopic, ExtractedTopics
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
@@ -11,7 +11,6 @@ from nlp_predictor.prompts import PROMPTS
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
-
 
 class TopicExtractor(BaseAnalyzer):
     """

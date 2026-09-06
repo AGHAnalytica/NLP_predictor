@@ -35,8 +35,8 @@ from dataclasses import dataclass, field
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from nlp_predictor.base_analyzer import BaseAnalyzer  # type: ignore
-from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.base_analyzer import BaseAnalyzer
+from nlp_predictor.config import Config
 
 _VALID_EFFECTS = ("tailwind", "headwind", "neutral")
 
@@ -170,16 +170,17 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         model (source diversity, embedding cohesion, recency) can replace it later
         without touching the fusion, since only this scalar is consumed downstream.
         """
-        total = float(pd.to_numeric(global_trends_df["severity"], errors="coerce")
-                      .fillna(0.0).sum())
+        total = float(
+            pd.to_numeric(global_trends_df["severity"], errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
         scale = float(Config["MACRO_CONVICTION_SCALE"])
         return float(math.tanh(total / scale)) if scale > 0 else 0.0
 
     def _map_climate(self, climate: str) -> dict[str, dict]:
         """One structured LLM call: climate -> per-instrument effect, validated."""
-        prompt = _PROMPT.format(
-            climate=climate, instruments=self._instrument_block()
-        )
+        prompt = _PROMPT.format(climate=climate, instruments=self._instrument_block())
         try:
             parsed = self._call_openai_api_with_retry(prompt, _MacroMapping)
         except Exception as e:  # noqa: BLE001 - a failed overlay just means no climate
@@ -215,4 +216,6 @@ if __name__ == "__main__":
     overlay = MacroOverlayAnalyzer().build(gt)
     print(f"[INFO] Conviction: {overlay.conviction:.2f}")
     for inst, eff in overlay.effects.items():
-        print(f"  {inst:8s} {eff['effect']:9s} {eff['strength']:.2f}  {eff['rationale']}")  # noqa: E501
+        print(
+            f"  {inst:8s} {eff['effect']:9s} {eff['strength']:.2f}  {eff['rationale']}"
+        )

@@ -9,16 +9,23 @@ context, severity dispatch, and long-form row assembly.
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
-
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 
 VARIANTS = [
-    {"name": "baseline_16h", "model": "baseline", "window_hours": 16.0,
-     "params": {"half_life_hours": 12.0, "kappa_scale": 0.8}},
-    {"name": "dcim_12h", "model": "dcim", "window_hours": 12.0,
-     "params": {"half_life_hours": 8.0, "kappa_scale": 0.8}},
+    {
+        "name": "baseline_16h",
+        "model": "baseline",
+        "window_hours": 16.0,
+        "params": {"half_life_hours": 12.0, "kappa_scale": 0.8},
+    },
+    {
+        "name": "dcim_12h",
+        "model": "dcim",
+        "window_hours": 12.0,
+        "params": {"half_life_hours": 8.0, "kappa_scale": 0.8},
+    },
 ]
 
 
@@ -30,20 +37,22 @@ def _analyzer():
 def _mapped_df():
     """Two instruments; AAPL has a fresh + an old article, SPY one fresh article."""
     rows = [
-        ("AAPL", 0.5, 2.0, "Bloomberg", 1.0, "t1"),    # in both 12h and 16h windows
-        ("AAPL", 0.5, 14.0, "Reuters", 0.95, "t2"),    # only in the 16h window
+        ("AAPL", 0.5, 2.0, "Bloomberg", 1.0, "t1"),  # in both 12h and 16h windows
+        ("AAPL", 0.5, 14.0, "Reuters", 0.95, "t2"),  # only in the 16h window
         ("SPY", -0.5, 1.0, "CNBC", 0.8, "t3"),
     ]
-    return pd.DataFrame({
-        "instrument": [r[0] for r in rows],
-        "sentiment": [r[1] for r in rows],
-        "date": [NOW - timedelta(hours=r[2]) for r in rows],
-        "source_name": [r[3] for r in rows],
-        "source_weight": [r[4] for r in rows],
-        "topic_id": [r[5] for r in rows],
-        "topic_name": ["n"] * len(rows),
-        "topic_description": ["d"] * len(rows),
-    })
+    return pd.DataFrame(
+        {
+            "instrument": [r[0] for r in rows],
+            "sentiment": [r[1] for r in rows],
+            "date": [NOW - timedelta(hours=r[2]) for r in rows],
+            "source_name": [r[3] for r in rows],
+            "source_weight": [r[4] for r in rows],
+            "topic_id": [r[5] for r in rows],
+            "topic_name": ["n"] * len(rows),
+            "topic_description": ["d"] * len(rows),
+        }
+    )
 
 
 _STUB_SUMMARY = {"title": "T", "description": "D", "llm_direction": "neutral"}
@@ -69,8 +78,14 @@ def test_long_form_has_row_per_variant_instrument(monkeypatch):
     assert set(out["variant"]) == {"baseline_16h", "dcim_12h"}
     assert set(out["instrument"]) == {"AAPL", "SPY"}
     # Long-form schema carries the A/B label + provenance.
-    for col in ("variant", "model", "window_hours", "severity", "direction",
-                "llm_direction"):
+    for col in (
+        "variant",
+        "model",
+        "window_hours",
+        "severity",
+        "direction",
+        "llm_direction",
+    ):
         assert col in out.columns
 
 
@@ -92,10 +107,16 @@ def test_window_changes_which_articles_count(monkeypatch):
     _patch(monkeypatch, a, _mapped_df())
     out = a.generate_variant_trends(_mapped_df(), VARIANTS, now=NOW)
 
-    n16 = len(out[(out["variant"] == "baseline_16h")
-                  & (out["instrument"] == "AAPL")].iloc[0]["topic_ids"])
-    n12 = len(out[(out["variant"] == "dcim_12h")
-                  & (out["instrument"] == "AAPL")].iloc[0]["topic_ids"])
+    n16 = len(
+        out[(out["variant"] == "baseline_16h") & (out["instrument"] == "AAPL")].iloc[0][
+            "topic_ids"
+        ]
+    )
+    n12 = len(
+        out[(out["variant"] == "dcim_12h") & (out["instrument"] == "AAPL")].iloc[0][
+            "topic_ids"
+        ]
+    )
     assert n16 == 2
     assert n12 == 1
 

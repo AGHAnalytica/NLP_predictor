@@ -2,6 +2,7 @@ import logging
 import xml.etree.ElementTree as ET
 
 import pandas as pd
+
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)

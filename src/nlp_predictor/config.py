@@ -94,9 +94,7 @@ Config = {
     ),  # noqa: E501
     # Append-only signal log: one row per (tick, variant, instrument). This IS the
     # A/B/n eval dataset — joined later to each variant's realized demo-account PnL.
-    "SIGNAL_LOG_PATH": str(
-        REPO_ROOT / "data" / "signal_log" / "signals_log.parquet"
-    ),  # noqa: E501
+    "SIGNAL_LOG_PATH": str(REPO_ROOT / "data" / "signal_log" / "signals_log.parquet"),  # noqa: E501
     # =========================================================================
     # CLUSTERING PARAMETERS (Lower Path - Macro Trends)
     # =========================================================================

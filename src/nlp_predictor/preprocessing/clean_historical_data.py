@@ -1,10 +1,19 @@
 import logging
 import os
-import pandas as pd
-from clean_data import *
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+import pandas as pd
+from clean_data import (
+    clean_html_content,
+    generate_doc_hash,
+    is_valid_article,
+    normalize_date_to_utc,
+)
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 def process_historical_data(input_path: str, output_path: str):
     """
@@ -13,7 +22,8 @@ def process_historical_data(input_path: str, output_path: str):
 
     Args:
         input_path (str): The absolute or relative path to the raw input Parquet file.
-        output_path (str): The absolute or relative path where the cleaned Parquet file will be saved.
+        output_path (str): The absolute or relative path where the cleaned Parquet file
+        will be saved.
     """
 
     logger.info(f"Loading raw parquet data from {input_path}")
@@ -43,16 +53,18 @@ def process_historical_data(input_path: str, output_path: str):
 
     final_count = len(df)
     logger.info(f"Success! Clean dataset saved to: {output_path}")
-    logger.info(f"Number of articles after cleaning: {final_count} ({initial_count - final_count} removed)")
+    logger.info(
+        "Number of articles after cleaning: "
+        + f"{final_count} ({initial_count - final_count} removed)"
+    )
 
 
 if __name__ == "__main__":
     CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
     # testing, testing !!!
-    RAW_FILE = os.path.join(CURRENT_DIR,"data","historical","alpaca_news.parquet")
-    CLEANED_FILE = os.path.join(CURRENT_DIR, "data", "historical", "alpaca_news_clean.parquet")
+    RAW_FILE = os.path.join(CURRENT_DIR, "data", "historical", "alpaca_news.parquet")
+    CLEANED_FILE = os.path.join(
+        CURRENT_DIR, "data", "historical", "alpaca_news_clean.parquet"
+    )
 
     process_historical_data(input_path=RAW_FILE, output_path=CLEANED_FILE)
-
-
-

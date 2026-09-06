@@ -28,14 +28,17 @@ def _analyzer(tickers=("AAPL", "SPY", "GLD")):
 def _global_trends(rows):
     """rows: list of (title, direction, severity)."""
     return pd.DataFrame(
-        [{"title": t, "direction": d, "severity": s, "description": "desc"}
-         for t, d, s in rows]
+        [
+            {"title": t, "direction": d, "severity": s, "description": "desc"}
+            for t, d, s in rows
+        ]
     )
 
 
 def test_overlay_for_instrument_defaults_neutral():
-    ov = MacroOverlay(effects={"AAPL": {"effect": "tailwind", "strength": 0.8,
-                                        "rationale": "r"}})
+    ov = MacroOverlay(
+        effects={"AAPL": {"effect": "tailwind", "strength": 0.8, "rationale": "r"}}
+    )
     assert ov.for_instrument("AAPL")["effect"] == "tailwind"
     miss = ov.for_instrument("UNKNOWN")
     assert miss["effect"] == "neutral" and miss["strength"] == 0.0
@@ -78,12 +81,14 @@ def test_map_climate_validates_and_clamps(monkeypatch):
             ticker=ticker, effect=effect, strength=strength, rationale="r"
         )
 
-    fake = _MacroMapping(effects=[
-        _e("AAPL", "Tailwind", 1.5),   # mixed case + over-range strength
-        _e("SPY", "headwind", 0.4),
-        _e("FAKE", "tailwind", 0.9),   # unknown ticker -> dropped
-        _e("AAPL", "sideways", 0.2),   # invalid effect -> dropped
-    ])
+    fake = _MacroMapping(
+        effects=[
+            _e("AAPL", "Tailwind", 1.5),  # mixed case + over-range strength
+            _e("SPY", "headwind", 0.4),
+            _e("FAKE", "tailwind", 0.9),  # unknown ticker -> dropped
+            _e("AAPL", "sideways", 0.2),  # invalid effect -> dropped
+        ]
+    )
     monkeypatch.setattr(a, "_call_openai_api_with_retry", lambda prompt, schema: fake)
 
     effects = a._map_climate("some climate")

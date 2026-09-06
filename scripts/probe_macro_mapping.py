@@ -164,8 +164,10 @@ def _run_mode(guided: bool) -> None:
             print(f"[ERROR] {scn['name']}: {e}")
             continue
 
-        pred = {e.ticker.upper(): (e.effect.strip().lower(), e.strength, e.rationale)
-                for e in parsed.effects}
+        pred = {
+            e.ticker.upper(): (e.effect.strip().lower(), e.strength, e.rationale)
+            for e in parsed.effects
+        }
 
         print(f"\n-- {scn['name']} --")
         for ticker, _name, acceptable in scn["instruments"]:
@@ -182,13 +184,17 @@ def _run_mode(guided: bool) -> None:
             print(f"  {mark}{ticker:7s} got={effect:9s} exp={exp}")
             if not ok:
                 why = got[2] if got else "(no answer returned)"
-                misses.append(f"    [{label}] {scn['name']} / {ticker}: "
-                              f"got '{effect}', expected {exp} — {why}")
+                misses.append(
+                    f"    [{label}] {scn['name']} / {ticker}: "
+                    f"got '{effect}', expected {exp} — {why}"
+                )
 
     acc = hits / total * 100 if total else 0
     hard_acc = hard_hits / hard_total * 100 if hard_total else 0
-    print(f"\n  {label} overall: {hits}/{total} = {acc:.0f}%   "
-          f"| HARD (havens/FX/rates): {hard_hits}/{hard_total} = {hard_acc:.0f}%")
+    print(
+        f"\n  {label} overall: {hits}/{total} = {acc:.0f}%   "
+        f"| HARD (havens/FX/rates): {hard_hits}/{hard_total} = {hard_acc:.0f}%"
+    )
     if misses:
         print("  Misses:")
         for m in misses:

@@ -28,12 +28,12 @@ re-deriving them, so ingestion and the analytical paths can never drift apart.
 from datetime import UTC, datetime
 
 import pandas as pd
-
-from nlp_predictor.config import Config  # type: ignore
-from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.topic.topic_extractor import TopicExtractor
+
+from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.preprocessing.feature_store import FeatureStore
 
 
 class FeatureIngestor:

@@ -81,8 +81,9 @@ def test_zero_sentiment_gives_zero_severity():
 
 def test_different_params_change_dcim_severity():
     # Same group, two DCIM tunings must be distinguishable (the basis of the A/B).
-    g = _group([(1, "Bloomberg", 0.5, 1.0), (3, "Reuters", 0.5, 0.95),
-                (5, "CNBC", 0.5, 0.8)])
+    g = _group(
+        [(1, "Bloomberg", 0.5, 1.0), (3, "Reuters", 0.5, 0.95), (5, "CNBC", 0.5, 0.8)]
+    )
     fast = {**DCIM_PARAMS, "half_life_hours": 2.0, "kappa_scale": 1.0}
     slow = {**DCIM_PARAMS, "half_life_hours": 24.0, "kappa_scale": 0.5}
     assert severity_dcim(g, fast, NOW, None) != severity_dcim(g, slow, NOW, None)
@@ -90,8 +91,9 @@ def test_different_params_change_dcim_severity():
 
 def test_baseline_and_dcim_differ_on_multisource():
     # The DCIM's consensus/echo terms should move it off the plain baseline sum.
-    g = _group([(1, "Bloomberg", 0.5, 1.0), (1, "Reuters", 0.5, 0.95),
-                (1, "CNBC", 0.5, 0.8)])
+    g = _group(
+        [(1, "Bloomberg", 0.5, 1.0), (1, "Reuters", 0.5, 0.95), (1, "CNBC", 0.5, 0.8)]
+    )
     assert severity_dcim(g, DCIM_PARAMS, NOW, None) != severity_baseline(
         g, DCIM_PARAMS, NOW, None
     )
@@ -99,7 +101,7 @@ def test_baseline_and_dcim_differ_on_multisource():
 
 def test_abnormal_volume_scales_with_coverage():
     params = {"half_life_hours": 12.0, "kappa_scale": 1.0}
-    quiet = _group([(1, "Bloomberg", 0.5, 1.0)])              # 1 article
+    quiet = _group([(1, "Bloomberg", 0.5, 1.0)])  # 1 article
     loud = _group([(1, f"src{i}", 0.5, 1.0) for i in range(8)])  # 8 articles
     ctx = {"baseline_count": 2.0}
     s_quiet = severity_abnormal_volume(quiet, params, NOW, ctx)
@@ -121,16 +123,21 @@ def test_dcim_matches_legacy_numbers():
     # Guard against drift: the extracted pure DCIM must reproduce the in-class result
     # the quantify script measured, given identical legacy params.
     legacy = {
-        "half_life_hours": 4.0, "beta_penalty": 0.2, "gamma_consensus": 0.3,
-        "delta_velocity": 0.3, "kappa_scale": 1.0, "recent_window_hours": 0.5,
+        "half_life_hours": 4.0,
+        "beta_penalty": 0.2,
+        "gamma_consensus": 0.3,
+        "delta_velocity": 0.3,
+        "kappa_scale": 1.0,
+        "recent_window_hours": 0.5,
     }
     g = _group([(2, f"src{i}", 0.5, 0.8) for i in range(4)])
     # Reproduce the analytic value: 4 distinct sources, decay over 2h, half-life 4h.
     decay = np.exp(-np.log(2) / 4.0 * 2.0)
-    total = 4 * (0.8 * 0.5 * decay)        # 4 sources, no echo penalty (1 each)
-    C = 1.0 + 0.3 * 1.0                     # all 4 agree
-    V = 0.0                                 # none within 0.5h
+    total = 4 * (0.8 * 0.5 * decay)  # 4 sources, no echo penalty (1 each)
+    C = 1.0 + 0.3 * 1.0  # all 4 agree
+    V = 0.0  # none within 0.5h
     expected = float(np.tanh(1.0 * C * (1.0 + 0.3 * V) * total))
-    assert severity_dcim(g, legacy, NOW, None) == round(expected, 12) or abs(
-        severity_dcim(g, legacy, NOW, None) - expected
-    ) < 1e-9
+    assert (
+        severity_dcim(g, legacy, NOW, None) == round(expected, 12)
+        or abs(severity_dcim(g, legacy, NOW, None) - expected) < 1e-9
+    )

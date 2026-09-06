@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 import requests
+
 from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
@@ -30,7 +31,9 @@ class BaseScraper(ABC):
         self.session.headers.update(
             {
                 # change the email later
-                "User-Agent": "AGH_Analityca_scraper/1.0 (contact: wojtczakkf@gmail.com)",
+                "User-Agent": (
+                    "AGH_Analityca_scraper/1.0 (contact: papiezpolak2137@gmail.com)",
+                ),
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )

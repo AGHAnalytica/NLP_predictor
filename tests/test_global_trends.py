@@ -8,7 +8,6 @@ points, no network is touched and the assertions are purely about embedding beha
 from datetime import UTC, datetime
 
 import pandas as pd
-
 from nlp_predictor.global_trends import LowerPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
@@ -18,9 +17,14 @@ def _analyzer(monkeypatch):
     # Bypass __init__ (no OpenAI client); stub the only other LLM touchpoint.
     a = LowerPathAnalyzer.__new__(LowerPathAnalyzer)
     monkeypatch.setattr(
-        a, "_generate_global_trend_summary",
-        lambda cid, group, sev: {"title": "t", "direction": "up", "severity": sev,
-                                 "topic_ids": group["topic_id"].tolist()},
+        a,
+        "_generate_global_trend_summary",
+        lambda cid, group, sev: {
+            "title": "t",
+            "direction": "up",
+            "severity": sev,
+            "topic_ids": group["topic_id"].tolist(),
+        },
     )
     return a
 
@@ -28,8 +32,12 @@ def _analyzer(monkeypatch):
 def _topics(with_embedding, n=4):
     rows = []
     for i in range(n):  # >= MIN_CLUSTER_SIZE so HDBSCAN runs without raising
-        row = {"topic_id": f"t{i}", "topic_name": "n", "topic_description": "d",
-               "date": NOW}
+        row = {
+            "topic_id": f"t{i}",
+            "topic_name": "n",
+            "topic_description": "d",
+            "date": NOW,
+        }
         if with_embedding:
             row["embedding"] = [0.01 * i, 0.02 * i]
         rows.append(row)

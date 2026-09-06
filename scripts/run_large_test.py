@@ -13,13 +13,13 @@ import pathlib
 
 import pandas as pd
 from dotenv import load_dotenv
-
-from nlp_predictor.config import REPO_ROOT, Config
 from nlp_predictor.global_trends import LowerPathAnalyzer
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.topic.topic_extractor import TopicExtractor
+
+from nlp_predictor.config import REPO_ROOT, Config
 from nlp_predictor.main import _enrich_topics_for_upper_path
 from nlp_predictor.signal.signal_generator import SignalGenerator
-from nlp_predictor.topic.topic_extractor import TopicExtractor
 
 load_dotenv(override=True)
 

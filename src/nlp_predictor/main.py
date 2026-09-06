@@ -25,11 +25,11 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from nlp_predictor.config import Config
-from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.global_trends import LowerPathAnalyzer
-from nlp_predictor.preprocessing.ingestion import FeatureIngestor
 from nlp_predictor.instrument_trends import UpperPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
+from nlp_predictor.preprocessing.feature_store import FeatureStore
+from nlp_predictor.preprocessing.ingestion import FeatureIngestor
 from nlp_predictor.scraping.scrape_runner import run_real_scrapers
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
@@ -104,8 +104,11 @@ def main() -> None:
             f"across {signals['variant'].nunique()} variant(s). Top calls:"
         )
         cols = ["variant", "instrument", "signal", "confidence", "macro_context"]
-        print(signals.sort_values("confidence", ascending=False)[cols]
-              .head(10).to_string(index=False))
+        print(
+            signals.sort_values("confidence", ascending=False)[cols]
+            .head(10)
+            .to_string(index=False)
+        )
 
     print("\n====== Tick complete ======")
 

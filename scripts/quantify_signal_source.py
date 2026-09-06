@@ -1,4 +1,4 @@
-﻿"""
+"""
 Quantify how much of the upper-path signal is driven by ARTICLE COUNT (the V1
 "source of truth") versus the other DCIM inputs (sentiment, source weight, recency).
 
@@ -16,9 +16,9 @@ import math
 
 import numpy as np
 import pandas as pd
+from nlp_predictor.instrument_trends import UpperPathAnalyzer
 
 from nlp_predictor.config import Config
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
 
 RNG = np.random.default_rng(42)
 SENTIMENT_LEVELS = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
@@ -47,14 +47,20 @@ def _make_group(n, sentiments, weights, ages_hours):
 
 # ---------------------------------------------------------------- A) empirical
 def measure_empirical():
-    df = pd.read_csv(Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"].replace(
-        "instrument_trends_report", "instrument_trends_report_large"))
+    df = pd.read_csv(
+        Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"].replace(
+            "instrument_trends_report", "instrument_trends_report_large"
+        )
+    )
     df["n_topics"] = df["topic_ids"].apply(lambda s: len(eval(s)))  # noqa: S307
     df["abs_sev"] = df["severity"].abs()
     r = df["n_topics"].corr(df["abs_sev"])
     print("\n=== A) EMPIRICAL (saved large report) ===")
-    print(df[["instrument", "n_topics", "severity", "abs_sev"]]
-          .sort_values("n_topics").to_string(index=False))
+    print(
+        df[["instrument", "n_topics", "severity", "abs_sev"]]
+        .sort_values("n_topics")
+        .to_string(index=False)
+    )
     print(f"\nPearson corr(n_topics, |severity|) = {r:.3f}  (R^2 = {r**2:.3f})")
     print("Same-count spread: at n=1, |severity| ranges across instruments purely")
     print("due to sentiment/source -> count alone does not determine the signal.")
@@ -86,14 +92,22 @@ def measure_elasticity():
 
     print("\n=== B) ELASTICITY (perturb one input around a baseline) ===")
     print(f"baseline (n=4, sent=0.5, w=0.8, age=2h):   severity = {sev0:+.3f}")
-    print(f"2x article count (n=8):                     {sev_count:+.3f}  "
-          f"(delta={sev_count - sev0:+.3f})")
-    print(f"sentiment 0.5 -> 1.0:                        {sev_sent:+.3f}  "
-          f"(delta={sev_sent - sev0:+.3f})")
-    print(f"sentiment -> 0.0 (gating test):              {sev_zero:+.3f}  "
-          f"(delta={sev_zero - sev0:+.3f})")
-    print(f"source weight 0.8 -> 0.3:                    {sev_w:+.3f}  "
-          f"(delta={sev_w - sev0:+.3f})")
+    print(
+        f"2x article count (n=8):                     {sev_count:+.3f}  "
+        f"(delta={sev_count - sev0:+.3f})"
+    )
+    print(
+        f"sentiment 0.5 -> 1.0:                        {sev_sent:+.3f}  "
+        f"(delta={sev_sent - sev0:+.3f})"
+    )
+    print(
+        f"sentiment -> 0.0 (gating test):              {sev_zero:+.3f}  "
+        f"(delta={sev_zero - sev0:+.3f})"
+    )
+    print(
+        f"source weight 0.8 -> 0.3:                    {sev_w:+.3f}  "
+        f"(delta={sev_w - sev0:+.3f})"
+    )
 
 
 # --------------------------------------------------- C) variance decomposition
@@ -106,12 +120,14 @@ def _random_instrument(a):
     names = src["source_name"].to_numpy()
     ages = RNG.uniform(0.0, 24.0, size=n)
 
-    group = pd.DataFrame({
-        "date": [NOW - pd.Timedelta(hours=h) for h in ages],
-        "source_name": names,
-        "sentiment": sentiments,
-        "source_weight": weights,
-    })
+    group = pd.DataFrame(
+        {
+            "date": [NOW - pd.Timedelta(hours=h) for h in ages],
+            "source_name": names,
+            "sentiment": sentiments,
+            "source_weight": weights,
+        }
+    )
     sev = a._severity_dcim(group)
     feats = {
         "count": n,
@@ -148,8 +164,11 @@ def _shapley_r2(data, predictors, target):
                 r2_with = _r2(data[with_k].to_numpy(), y)
                 r2_without = _r2(data[list(subset)].to_numpy(), y) if subset else 0.0
                 # Shapley weight for marginal contributions.
-                w = (math.factorial(len(subset)) *
-                     math.factorial(p - len(subset) - 1) / math.factorial(p))
+                w = (
+                    math.factorial(len(subset))
+                    * math.factorial(p - len(subset) - 1)
+                    / math.factorial(p)
+                )
                 contrib[k] += w * (r2_with - r2_without)
     return contrib
 
@@ -179,8 +198,10 @@ def measure_decomposition(n_draws=4000):
         share = contrib_mag[k] / total_mag * 100 if total_mag else 0
         print(f"  {k:20s}: {contrib_mag[k]:.3f}  ({share:5.1f}% of explained)")
     print(f"  total R^2 = {total_mag:.3f}")
-    print(f"  >>> ARTICLE COUNT share of magnitude signal: "
-          f"{contrib_mag['count'] / total_mag * 100:.1f}%")
+    print(
+        f"  >>> ARTICLE COUNT share of magnitude signal: "
+        f"{contrib_mag['count'] / total_mag * 100:.1f}%"
+    )
 
     # Direction model: what drives the sign.
     data["sign"] = np.sign(data["severity"])
@@ -191,12 +212,13 @@ def measure_decomposition(n_draws=4000):
     for k in dir_predictors:
         share = contrib_dir[k] / total_dir * 100 if total_dir else 0
         print(f"  {k:20s}: {contrib_dir[k]:.3f}  ({share:5.1f}% of explained)")
-    print(f"  >>> ARTICLE COUNT share of direction: "
-          f"{contrib_dir['count'] / total_dir * 100:.1f}%")
+    print(
+        f"  >>> ARTICLE COUNT share of direction: "
+        f"{contrib_dir['count'] / total_dir * 100:.1f}%"
+    )
 
 
 if __name__ == "__main__":
     measure_empirical()
     measure_elasticity()
     measure_decomposition()
-

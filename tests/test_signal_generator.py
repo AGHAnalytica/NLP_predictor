@@ -21,10 +21,12 @@ def _trend(instrument, severity, direction, topic_ids=("t1",)):
 def test_confidence_independent_of_llm_direction():
     # Same severity; only the LLM ``direction`` field differs (one agrees with the
     # severity sign, one contradicts it). Confidence and signal must be identical.
-    df = pd.DataFrame([
-        _trend("AAPL", 0.5, "up"),
-        _trend("MSFT", 0.5, "down"),  # LLM says down, severity says up
-    ])
+    df = pd.DataFrame(
+        [
+            _trend("AAPL", 0.5, "up"),
+            _trend("MSFT", 0.5, "down"),  # LLM says down, severity says up
+        ]
+    )
     out = SignalGenerator().generate(df, None).set_index("instrument")
 
     assert out.loc["AAPL", "confidence"] == out.loc["MSFT", "confidence"]
@@ -33,11 +35,13 @@ def test_confidence_independent_of_llm_direction():
 
 
 def test_direction_follows_severity_sign():
-    df = pd.DataFrame([
-        _trend("UPPER", 0.4, "down"),
-        _trend("LOWER", -0.4, "up"),
-        _trend("FLAT", 0.0, "up"),
-    ])
+    df = pd.DataFrame(
+        [
+            _trend("UPPER", 0.4, "down"),
+            _trend("LOWER", -0.4, "up"),
+            _trend("FLAT", 0.0, "up"),
+        ]
+    )
     out = SignalGenerator().generate(df, None).set_index("instrument")
 
     assert out.loc["UPPER", "signal"] == "UP"
@@ -55,8 +59,12 @@ def test_rationale_has_no_internal_conflict_note():
 # AAPL's trend carries topic_ids ['t1']; a cluster sharing 't1' is a DIRECT driver, so
 # its severity sets AAPL's conviction = tanh(severity / MACRO_CONVICTION_SCALE).
 def _cluster(topic_ids, severity, direction="up", title="climate"):
-    return {"topic_ids": list(topic_ids), "severity": severity,
-            "direction": direction, "title": title}
+    return {
+        "topic_ids": list(topic_ids),
+        "severity": severity,
+        "direction": direction,
+        "title": title,
+    }
 
 
 def _gt(*clusters):
@@ -79,8 +87,8 @@ def _strong():
 
 
 def test_overlay_agree_boosts_confidence():
-    base = _conf(0.5)["confidence"]                                 # no overlay
-    agree = _conf(0.5, _ov("tailwind"), _strong())["confidence"]    # up + tailwind
+    base = _conf(0.5)["confidence"]  # no overlay
+    agree = _conf(0.5, _ov("tailwind"), _strong())["confidence"]  # up + tailwind
     assert agree > base
 
 
@@ -121,8 +129,8 @@ def test_per_instrument_conviction_reflects_driver_not_total():
     # The fix: AAPL's conviction comes from ITS driving cluster (shares 't1'), not the
     # climate-wide total. Same total volume (23), but a 3-article driver must modulate
     # far less than a 20-article driver — a global sum would make these identical.
-    small_driver = _gt(_cluster(["t1"], 3), _cluster(["zzz"], 20))   # AAPL driver = 3
-    big_driver = _gt(_cluster(["t1"], 20), _cluster(["zzz"], 3))     # AAPL driver = 20
+    small_driver = _gt(_cluster(["t1"], 3), _cluster(["zzz"], 20))  # AAPL driver = 3
+    big_driver = _gt(_cluster(["t1"], 20), _cluster(["zzz"], 3))  # AAPL driver = 20
     c_small = _conf(0.5, _ov("tailwind"), small_driver)["confidence"]
     c_big = _conf(0.5, _ov("tailwind"), big_driver)["confidence"]
     assert c_big > c_small

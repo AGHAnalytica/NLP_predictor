@@ -22,10 +22,12 @@ HL = {"half_life_hours": 18.0}
 
 def _cluster(rows):
     """rows: list of (age_hours, source_weight)."""
-    return pd.DataFrame({
-        "date": [NOW - timedelta(hours=a) for a, _ in rows],
-        "source_weight": [w for _, w in rows],
-    })
+    return pd.DataFrame(
+        {
+            "date": [NOW - timedelta(hours=a) for a, _ in rows],
+            "source_weight": [w for _, w in rows],
+        }
+    )
 
 
 def test_count_is_raw_size():
