@@ -1,6 +1,7 @@
 # AGH Analytica NLP Predictor
 
-> **Automated financial news analysis system based on language models (LLM) using Dual Path Architecture.**
+### **Automated financial news analysis system based on language models (LLM) using Dual Path Architecture.**
+
 
 <div align="center">
 
@@ -24,59 +25,34 @@
 The NLP Predictor pipeline uses `pyproject.toml` for dependency management and the ultra-fast `uv` package manager.
 
 ### Prerequisites
-* **Python** (v3.11+)
-* **uv** (Install via `pip install uv`)
-* An `OPENAI_API_KEY` environment variable
+- **Python** (v3.14+)
+- **uv** - follow instructions at [official Astral page](https://docs.astral.sh/uv/getting-started/)
+- API key for [OpenAI API](https://platform.openai.com/api-keys)
 
 ### Installation Steps
 
 1. **Clone the repository:**
 ```bash
-   git clone <git@github.com:AGHAnalytica/NLP_predictor.git>
-   cd <NLP_predictor>
-
+   cd <your/working/directory>
+   git clone https://github.com/AGHAnalytica/NLP_predictor.git
+   cd NLP_predictor
+```
+2. Create `.env` file
+In repo's directory create a file named `.env` and fill it with the following content
+```
+OPENAI_API_KEY=your_api_key_goes_here
 ```
 
-2. **Navigate to the backend directory:**
-
-```bash
-   cd src/nlp_predictor
-
-```
-
-3. **Create a virtual environment and install dependencies:**
-`uv` will automatically create the environment and sync all packages defined in `pyproject.toml`.
+3. Install all needed dependencies and create virtual environment using `uv`
 
 ```bash
    uv sync
-
 ```
 
-4. **Activate the virtual environment:**
-**Linux / macOS:**
+4. **Run the main pipeline:**
 
 ```bash
-     source .venv/bin/activate
-
-```
-**Windows:**
-```cmd
-     .venv\Scripts\activate
-
-```
-
-5. **Configure environment variables:**
-   Create a `.env` file in the directory where you will run the application and add your API key:
-```env
-   OPENAI_API_KEY=your_openai_api_key_here
-
-```
-
-6. **Run the main pipeline:**
-
-```bash
-   python main.py
-
+   uv run main
 ```
 
 ---
@@ -106,7 +82,6 @@ If you have added new `.py` files or changed the directory structure in `src/nlp
 
 ```bash
 sphinx-apidoc -f -o source ../src/nlp_predictor
-
 ```
 
 ### Step 4: Build the HTML documentation
@@ -117,14 +92,12 @@ Generate the web pages using the `make` command:
 
 ```bash
   make html
-
 ```
 
 * **Windows:**
 
 ```cmd
   make.bat html
-
 ```
 
 ### Step 5: View the documentation
@@ -136,7 +109,6 @@ Open the **`index.html`** file from that directory in any web browser to view th
 
 ```
     file:///$YOUR_PATH$/NLP_predictor/docs/build/html/index.html
-
 ```
 
 ## 🏗️ Architecture (TODO)
