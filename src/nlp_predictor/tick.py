@@ -36,13 +36,13 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.config import Config  # type: ignore
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.config import Config
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 
 class TickRunner:

@@ -5,11 +5,6 @@ import pandas as pd
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
-from nlp_predictor.instrument import (
-    InstrumentMapping,
-    InstrumentTrend,
-    _quantize_sentiment,
-)
 from nlp_predictor.lower_path.severity_models import (
     REQUIRED_COLUMNS,
     SEVERITY_REGISTRY,
@@ -17,6 +12,11 @@ from nlp_predictor.lower_path.severity_models import (
     severity_dcim,
 )
 from nlp_predictor.prompts import PROMPTS
+from nlp_predictor.upper_path.instrument import (
+    InstrumentMapping,
+    InstrumentTrend,
+    _quantize_sentiment,
+)
 
 
 class UpperPathAnalyzer(BaseAnalyzer):

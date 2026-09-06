@@ -4,7 +4,7 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
-from hdbscan import HDBSCAN
+from sklearn.cluster import HDBSCAN
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config

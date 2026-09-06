@@ -25,16 +25,16 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from nlp_predictor.config import Config
-from nlp_predictor.global_trends import LowerPathAnalyzer
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
+from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.preprocessing.ingestion import FeatureIngestor
+from nlp_predictor.preprocessing.topic.topic_extractor import TopicExtractor
 from nlp_predictor.scraping.scrape_runner import run_real_scrapers
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
 from nlp_predictor.tick import TickRunner
-from nlp_predictor.topic.topic_extractor import TopicExtractor
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
