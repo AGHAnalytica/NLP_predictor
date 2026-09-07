@@ -33,7 +33,7 @@ class BaseScraper(ABC):
         self.session.headers.update(
             {
                 # change the email later
-                "User-Agent": "AGH_Analityca_scraper/1.0 (contact: papiezpolak2137@gmail.com)", # noqa: E501
+                "User-Agent": "AGH_Analityca_scraper/1.0 (contact: papiezpolak2137@gmail.com)",  # noqa: E501
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )
@@ -166,7 +166,9 @@ class BaseScraper(ABC):
             logger.error(f"Network error while fetching {url}: {e}")
             return None
 
-    async def fetch_urls_concurrently(self, urls: list[str], max_concurrent: int = 15) -> list[tuple[str, str]]:
+    async def fetch_urls_concurrently(
+        self, urls: list[str], max_concurrent: int = 15
+    ) -> list[tuple[str, str]]:
         """
         Asynchronously fetches a list of URLs using aiohttp.
         Utilizes a Semaphore to limit the number of concurrent connections and avoid
@@ -176,25 +178,28 @@ class BaseScraper(ABC):
 
         async_headers = dict(self.session.headers)
 
-        async with aiohttp.ClientSession(headers = async_headers) as async_session:
+        async with aiohttp.ClientSession(headers=async_headers) as async_session:
 
             async def fetch(url: str) -> tuple[str, str]:
                 async with semaphore:
                     try:
                         async with async_session.get(url, timeout=15) as response:
                             if response.status in (403, 429):
-                                logger.warning(f"Async access blocked for {url}. (Status: {response.status}.)")
+                                logger.warning(
+                                    f"Async access blocked for {url}. (Status: {response.status}.)"
+                                )
                                 return url, ""
 
                             response.raise_for_status()
                             html = await response.text()
-                            return url,html
+                            return url, html
                     except Exception as e:
                         logger.error(f"Async network error while fetching {url}: {e}")
                         return url, ""
+
             tasks = [fetch(url) for url in urls]
             return await asyncio.gather(*tasks)
-        
+
     def process_article(
         self,
         source: str,

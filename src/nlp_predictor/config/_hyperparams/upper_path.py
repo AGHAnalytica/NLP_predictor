@@ -9,5 +9,6 @@ class DCIMHyperparams(BaseModel):
     kappa_scale: float
     recent_window_hours: float
 
+
 class UpperPathHyperparams(BaseModel):
     dcim: DCIMHyperparams

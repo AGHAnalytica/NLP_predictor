@@ -11,10 +11,12 @@ from ._severity import Severity
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _YAML_DIR = REPO_ROOT / "config"
 
+
 class Config(BaseModel):
     paths: Paths
     hyperparams: Hyperparams
     severity: Severity
+
 
 def _load_config() -> Config:
     with open(_YAML_DIR / "paths.yaml") as f:
@@ -33,5 +35,6 @@ def _load_config() -> Config:
     }
 
     return Config(**combined_config)
+
 
 config = _load_config()

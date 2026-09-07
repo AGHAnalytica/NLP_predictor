@@ -74,7 +74,9 @@ class APNewsScraper(BaseScraper):
             return pd.DataFrame(columns=expected_columns)
 
         logger.info(f"Starting concurrent fetching for {len(urls_to_fetch)} URLs...")
-        html_results = asyncio.run(self,fetch_urls_concurrently(urls_to_fetch, max_concurrent = 15))
+        html_results = asyncio.run(
+            self.fetch_urls_concurrently(urls_to_fetch, max_concurrent=15)
+        )
 
         for article_url, article_html in html_results:
             if not article_html:

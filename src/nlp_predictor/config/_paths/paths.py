@@ -9,6 +9,7 @@ class InputPaths(BaseModel):
     articles: Path
     weights: Path
 
+
 class OutputPaths(BaseModel):
     topics_csv: Path
     topics_parquet: Path
@@ -19,12 +20,15 @@ class OutputPaths(BaseModel):
     signals_csv: Path
     signals_parquet: Path
 
+
 class LogsPaths(BaseModel):
     log: Path
     signal_log: Path
 
+
 class CachePaths(BaseModel):
     feature_store: Path
+
 
 class Paths(BaseModel):
     input: InputPaths

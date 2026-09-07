@@ -12,6 +12,7 @@ from nlp_predictor.prompts import PROMPTS
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
 
+
 class TopicExtractor(BaseAnalyzer):
     """
     Group 2 — Topic extraction.
