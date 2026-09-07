@@ -3,7 +3,7 @@ from urllib.parse import urljoin
 
 import pandas as pd
 from bs4 import BeautifulSoup  # type: ignore
-
+import asyncio
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -60,14 +60,23 @@ class APNewsScraper(BaseScraper):
 
         logger.info(f"Found {len(found_links)} unique article links on AP News hubs.")
 
+        urls_to_fetch = []
         for article_url in found_links:
             if self.is_duplicate(doc_hash="", url=article_url):
                 logger.debug(f"Article already exists in DB (URL): {article_url}")
-                continue
+            else:
+                urls_to_fetch.append(article_url)
 
-            logger.info(f"Fetching full content: {article_url}")
-            article_html = self.fetch_html(article_url)
+        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 
+        if not urls_to_fetch:
+            logger.info("No new articles found. Skipping.")
+            return pd.DataFrame(columns=expected_columns)
+
+        logger.info(f"Starting concurrent fetching for {len(urls_to_fetch)} URLs...")
+        html_results = asyncio.run(self,fetch_urls_concurrently(urls_to_fetch, max_concurrent = 15))
+
+        for article_url, article_html in html_results:
             if not article_html:
                 continue
 
@@ -108,8 +117,6 @@ class APNewsScraper(BaseScraper):
         logger.info(
             f"APNewsScraper finished. Fetched {len(articles_data)}" + " new articles."
         )
-
-        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 
         if not articles_data:
             return pd.DataFrame(columns=expected_columns)
