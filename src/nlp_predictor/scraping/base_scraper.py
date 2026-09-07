@@ -4,7 +4,9 @@ import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from typing import Any
+import asyncio
 
+import aiohttp
 import pandas as pd
 import requests
 
@@ -23,7 +25,7 @@ class BaseScraper(ABC):
     Base class for all news scrapers.
     Provides a shared HTTP session, request limits, headers, and Parquet-based
     deduplication. Child classes must implement the run() method to fetch and p
-    rocess articles.
+    rocess articles. Now includes asynchronous fetching capabilities.
     """
 
     def __init__(self, history_file: str = "data/scraping/scraped_history.parquet"):
@@ -54,8 +56,8 @@ class BaseScraper(ABC):
         return pd.DataFrame(columns=["doc_hash", "url", "scraped_at"])
 
     def _cleanup_old_history(self) -> None:
-        """R
-        emoves rows older than 4 hours from the DataFrame in memory.
+        """
+        Removes rows older than 4 hours from the DataFrame in memory.
         This prevents the historical cache from growing indefinitely and ensures
         that articles can be re-scraped after a reasonable time window.
 
@@ -164,6 +166,35 @@ class BaseScraper(ABC):
             logger.error(f"Network error while fetching {url}: {e}")
             return None
 
+    async def fetch_urls_concurrently(self, urls: list[str], max_concurrent: int = 15) -> list[tuple[str, str]]:
+        """
+        Asynchronously fetches a list of URLs using aiohttp.
+        Utilizes a Semaphore to limit the number of concurrent connections and avoid
+        429/403 HTTP Rate Limit errors. Reuses headers from the synchronous session.
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async_headers = dict(self.session.headers)
+
+        async with aiohttp.ClientSession(headers = async_headers) as async_session:
+
+            async def fetch(url: str) -> tuple[str, str]:
+                async with semaphore:
+                    try:
+                        async with async_session.get(url, timeout=15) as response:
+                            if response.status in (403, 429):
+                                logger.warning(f"Async access blocked for {url}. (Status: {response.status}.)")
+                                return url, ""
+
+                            response.raise_for_status()
+                            html = await response.text()
+                            return url,html
+                    except Exception as e:
+                        logger.error(f"Async network error while fetching {url}: {e}")
+                        return url, ""
+            tasks = [fetch(url) for url in urls]
+            return await asyncio.gather(*tasks)
+        
     def process_article(
         self,
         source: str,
