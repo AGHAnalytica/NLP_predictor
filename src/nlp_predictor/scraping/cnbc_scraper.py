@@ -2,6 +2,7 @@ import logging
 import xml.etree.ElementTree as ET
 
 import pandas as pd
+import asyncio
 
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
@@ -41,6 +42,8 @@ class CNBCScraper(BaseScraper):
         """
         articles_data = []
 
+        pending_articles = {}
+
         for rss_url in self.rss_feeds:
             logger.info(f"Fetching RSS feed: {rss_url}")
             rss_xml = self.fetch_html(rss_url)
@@ -73,30 +76,45 @@ class CNBCScraper(BaseScraper):
                         )
                         continue
 
-                    logger.info(f"Fetching full content: {article_url}")
-                    article_html = self.fetch_html(article_url)
-
-                    if not article_html:
-                        continue
-
-                    processed = self.process_article(
-                        source="CNBC",
-                        url=article_url,
-                        raw_title=raw_title,
-                        raw_date=raw_date,
-                        raw_html=article_html,
-                    )
-
-                    if processed:
-                        articles_data.append(processed)
-
+                    pending_articles[article_url] = {
+                        "title": raw_title,
+                        "date": raw_date,
+                    }
             except ET.ParseError as e:
                 logger.error(f"XML parsing error for {rss_url}: {e}")
 
+        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
+
+        if not pending_articles:
+            logger.info("No new articles to fetch.")
+            return pd.DataFrame(columns=expected_columns)
+
+        urls_to_fetch = list(pending_articles.keys())
+
+        logger.info(f"Starting concurrent fetching for {len(urls_to_fetch)} URLs...")
+        html_results = asyncio.run(
+            self.fetch_urls_concurrently(urls_to_fetch, max_concurrent=15)
+        )
+
+        for article_url, article_html in html_results:
+            if not article_html:
+                continue
+
+            meta = pending_articles[article_url]
+
+            processed = self.process_article(
+                source="CNBC",
+                url=article_url,
+                raw_title=meta["title"],
+                raw_date=meta["date"],
+                raw_html=article_html,
+            )
+
+            if processed:
+                articles_data.append(processed)
+
         self.save_history()
         logger.info(f"CNBCScraper finished. Fetched {len(articles_data)} new articles.")
-
-        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 
         if not articles_data:
             return pd.DataFrame(columns=expected_columns)
