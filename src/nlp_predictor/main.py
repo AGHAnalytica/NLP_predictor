@@ -27,7 +27,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from nlp_predictor.config import config
-from nlp_predictor.logging_config import setup_logging
+from nlp_predictor.core.logging_config import setup_logging
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
 from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
@@ -36,7 +36,7 @@ from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
 from nlp_predictor.scraping.scrape_runner import run_real_scrapers
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
-from nlp_predictor.tick_runner import TickRunner
+from nlp_predictor.tick.tick_runner import TickRunner
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env

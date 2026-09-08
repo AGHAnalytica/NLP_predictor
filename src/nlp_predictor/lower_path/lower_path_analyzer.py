@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import HDBSCAN
 
-from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.core.base_analyzer import BaseAnalyzer
 from nlp_predictor.lower_path.global_trend import GlobalTrend
 from nlp_predictor.lower_path.severity_models import MACRO_SEVERITY_REGISTRY
 from nlp_predictor.prompts import PROMPTS

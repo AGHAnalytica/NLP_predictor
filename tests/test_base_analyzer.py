@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.core.base_analyzer import BaseAnalyzer
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 
 
@@ -40,7 +40,7 @@ def test_parallel_map_empty(monkeypatch):
 
 def test_embeddings_batch_chunking(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "dummy_key")
-    with patch("nlp_predictor.base_analyzer.OpenAI") as mock_openai:
+    with patch("nlp_predictor.core.base_analyzer.OpenAI") as mock_openai:
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
 
@@ -69,7 +69,7 @@ def test_embeddings_batch_chunking(monkeypatch):
 def test_is_transient_rate_limit():
     from openai import RateLimitError
 
-    from nlp_predictor.base_analyzer import _is_transient_rate_limit
+    from nlp_predictor.core.base_analyzer import _is_transient_rate_limit
 
     # Transient rate limit (TPM/RPM)
     transient_err = RateLimitError(

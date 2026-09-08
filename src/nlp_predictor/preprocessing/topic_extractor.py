@@ -5,8 +5,8 @@ from typing import cast
 import pandas as pd
 from dotenv import load_dotenv
 
-from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.core.base_analyzer import BaseAnalyzer
 from nlp_predictor.preprocessing.topic import ExtractedTopic, ExtractedTopics
 from nlp_predictor.prompts import PROMPTS
 

@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from nlp_predictor.logging_config import setup_logging
+from nlp_predictor.core.logging_config import setup_logging
 
 
 def test_setup_logging_creates_handlers_and_writes_file(tmp_path: Path) -> None:

@@ -38,8 +38,8 @@ from dataclasses import dataclass, field
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.core.base_analyzer import BaseAnalyzer
 from nlp_predictor.prompts import PROMPTS
 
 logger = logging.getLogger(__name__)

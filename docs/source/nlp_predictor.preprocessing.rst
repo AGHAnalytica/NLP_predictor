@@ -36,14 +36,6 @@ nlp\_predictor.preprocessing.feature\_store module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.preprocessing.ingestion module
----------------------------------------------
-
-.. automodule:: nlp_predictor.preprocessing.ingestion
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 nlp\_predictor.preprocessing.topic module
 -----------------------------------------
 

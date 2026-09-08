@@ -4,14 +4,6 @@ nlp\_predictor.upper\_path package
 Submodules
 ----------
 
-nlp\_predictor.upper\_path.instrument module
---------------------------------------------
-
-.. automodule:: nlp_predictor.upper_path.instrument
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 nlp\_predictor.upper\_path.models module
 ----------------------------------------
 

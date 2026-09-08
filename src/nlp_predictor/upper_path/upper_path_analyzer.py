@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.core.base_analyzer import BaseAnalyzer
 from nlp_predictor.lower_path.severity_models import (
     REQUIRED_COLUMNS,
     SEVERITY_REGISTRY,

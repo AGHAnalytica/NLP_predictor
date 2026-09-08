@@ -197,3 +197,5 @@ PROMPTS = {
         {topics_context}
         """,
 }
+
+__all__ = ["PROMPTS"]
