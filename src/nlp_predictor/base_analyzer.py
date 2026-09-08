@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +13,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_exponential,
+    wait_random_exponential,
 )
 
 from nlp_predictor.config import config
@@ -46,22 +47,37 @@ class BaseAnalyzer(ABC):
     # These calls are I/O-bound, so threads (which release the GIL during network
     # I/O) give near-linear speedup; the sync OpenAI client is thread-safe. Higher
     # values are faster but more likely to hit rate limits (handled by the retry).
-    MAX_WORKERS = 8
+    MAX_WORKERS = 2
 
-    def __init__(self):
+    def __init__(
+        self,
+        max_workers: int | None = None,
+        request_delay: float | None = None,
+    ):
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError(
                 "Critical Security Error: OPENAI_API_KEY is not set in the environment."
             )
         self.client = OpenAI(api_key=api_key)
+        self.max_workers = (
+            max_workers
+            if max_workers is not None
+            else int(config.hyperparams.models.max_workers)
+        )
+        self.request_delay = (
+            request_delay
+            if request_delay is not None
+            else float(config.hyperparams.models.request_delay)
+        )
 
     @retry(
-        stop=stop_after_attempt(10),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
+        stop=stop_after_attempt(12),
+        wait=wait_random_exponential(min=4, max=60),
         retry=retry_if_exception_type(RateLimitError),
         before_sleep=lambda retry_state: logger.warning(
-            f"Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})"
+            f"Rate limit hit. Sleeping for {retry_state.upcoming_sleep:.1f}s... "
+            f"(Attempt {retry_state.attempt_number})"
         ),
     )
     def _call_openai_api_with_retry(
@@ -69,7 +85,8 @@ class BaseAnalyzer(ABC):
     ) -> BaseModel:
         """
         Calls the OpenAI API with structured output and returns a validated
-        Pydantic object. Uses exponential backoff to handle rate limits.
+        Pydantic object. Uses exponential backoff with random jitter to handle
+        rate limits and avoid synchronized retries.
 
         Args:
             prompt (str): The prompt to send to the LLM.
@@ -95,9 +112,9 @@ class BaseAnalyzer(ABC):
 
         Used to fan out independent LLM calls (e.g. one per article, topic or
         cluster) instead of issuing them serially. Concurrency is capped at
-        :attr:`MAX_WORKERS`; the per-call rate-limit retry still applies inside
-        ``fn``. ``fn`` should handle its own errors and return a safe default, so a
-        single failing item does not abort the whole batch.
+        :attr:`max_workers`; the per-call rate-limit retry still applies inside
+        ``fn``. If :attr:`request_delay` > 0, task submissions are paced to
+        prevent bursting.
 
         Args:
             fn (Callable): Function applied to each item (typically wraps one API call).
@@ -108,8 +125,23 @@ class BaseAnalyzer(ABC):
         """
         if not items:
             return []
-        with ThreadPoolExecutor(max_workers=min(self.MAX_WORKERS, len(items))) as ex:
-            return list(ex.map(fn, items))
+
+        workers = min(self.max_workers, len(items))
+        if workers <= 1:
+            return [fn(item) for item in items]
+
+        def paced_fn(index_and_item: tuple[int, T]) -> tuple[int, R]:
+            idx, item = index_and_item
+            if self.request_delay > 0:
+                if idx < workers:
+                    time.sleep(idx * self.request_delay)
+                else:
+                    time.sleep(self.request_delay)
+            return idx, fn(item)
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            results = ex.map(paced_fn, enumerate(items))
+            return [r for _, r in results]
 
     @staticmethod
     def save_trends(result_df: pd.DataFrame, output_path: str):

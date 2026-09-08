@@ -29,7 +29,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
     def _generate_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Generates embeddings for a list of texts using OpenAI's API in batch mode.
-        This is more efficient than making individual API calls for each text.
+        Automatically chunks requests into batches of 100 to stay within API limits.
 
         Args:
             texts (list[str]): A list of strings for which to generate embeddings.
@@ -38,12 +38,19 @@ class LowerPathAnalyzer(BaseAnalyzer):
             list[list[float]]: A list of embedding vectors corresponding to the input
             texts, in the same order as the input list.
         """
-        response = self.client.embeddings.create(
-            input=texts,
-            model=str(config.hyperparams.models.embedding),
-        )
-        # Extract the embedding vectors in the exact order of the input texts
-        return [embedding.embedding for embedding in response.data]
+        if not texts:
+            return []
+
+        chunk_size = 100
+        embeddings: list[list[float]] = []
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i : i + chunk_size]
+            response = self.client.embeddings.create(
+                input=chunk,
+                model=str(config.hyperparams.models.embedding),
+            )
+            embeddings.extend([embedding.embedding for embedding in response.data])
+        return embeddings
 
     def _calculate_severity(self, group: pd.DataFrame) -> float:
         """

@@ -21,7 +21,7 @@ paths:
 
   cache:
     feature_store: "data/feature_store/topic_features.parquet"
-    scraped_history: "data/scraped_history.parquet"
+    scraped_history: "data/scraping/scraped_history.parquet"
 
   historical:
     news_csv: "data/historical/alpaca_news.csv"

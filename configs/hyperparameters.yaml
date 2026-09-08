@@ -3,6 +3,11 @@ hyperparams:
     llm: "gpt-5-nano"
     embedding: "text-embedding-3-small"
     severity_model: "dcim"
+    max_workers: 2
+    request_delay: 0.2
+    retry_attempts: 12
+    retry_min_wait: 4.0
+    retry_max_wait: 60.0
 
   lower_path:
     severity_threshold: 2

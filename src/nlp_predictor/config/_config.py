@@ -50,6 +50,7 @@ def _build_legacy_resolvers(cfg: "Config") -> dict[str, Callable[[], Any]]:
         "LLM_MODEL": lambda: cfg.hyperparams.models.llm,
         "EMBEDDING_MODEL": lambda: cfg.hyperparams.models.embedding,
         "SEVERITY_MODEL": lambda: cfg.hyperparams.models.severity_model,
+        "OPENAI_MAX_WORKERS": lambda: cfg.hyperparams.models.max_workers,
         "SEVERITY_THRESHOLD": lambda: cfg.hyperparams.lower_path.severity_threshold,
         "MIN_CLUSTER_SIZE": lambda: cfg.hyperparams.lower_path.min_cluster_size,
         "MACRO_SEVERITY_MODEL": lambda: cfg.hyperparams.lower_path.macro_severity_model,

@@ -53,7 +53,7 @@ class LogsPaths(BaseModel):
 
 class CachePaths(BaseModel):
     feature_store: Path
-    scraped_history: Path = Path("data/scraped_history.parquet")
+    scraped_history: Path = Path("data/scraping/scraped_history.parquet")
 
     @field_validator("*", mode="before")
     @classmethod
