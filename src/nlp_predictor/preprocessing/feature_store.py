@@ -300,7 +300,10 @@ class FeatureStore:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+    )  # noqa: E501
     logger.info("====== FeatureStore Module Test ======")
     store = FeatureStore()
     logger.info(f"Store path: {store.path}")

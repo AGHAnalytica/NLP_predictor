@@ -73,6 +73,7 @@ class MacroOverlay:
             instrument, {"effect": "neutral", "strength": 0.0, "rationale": ""}
         )
 
+
 # TODO: move prompt to config
 _PROMPT = """You are a macro strategist. Below is the current market CLIMATE, then a
 list of instruments. For EACH instrument, decide how this climate affects its price over

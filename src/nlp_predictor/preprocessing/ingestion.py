@@ -175,7 +175,10 @@ class FeatureIngestor:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+    )  # noqa: E501
     logger.info("====== FeatureIngestor Module Test ======")
     from dotenv import load_dotenv
 

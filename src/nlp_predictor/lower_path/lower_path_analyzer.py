@@ -202,9 +202,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
             parsed_result = self._call_openai_api_with_retry(prompt, GlobalTrend)
             result = parsed_result.model_dump()
         except Exception as e:
-            logger.error(
-                f"Trend generation failed for cluster {cluster_id}: {e}"
-            )
+            logger.error(f"Trend generation failed for cluster {cluster_id}: {e}")
             result = {
                 "title": "Macro aggregation error",
                 "description": "Failed to generate summary.",

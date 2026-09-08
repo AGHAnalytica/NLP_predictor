@@ -62,5 +62,3 @@ def test_setup_logging_default_path(tmp_path: Path) -> None:
             root_logger.removeHandler(h)
         for h in original_handlers:
             root_logger.addHandler(h)
-
-

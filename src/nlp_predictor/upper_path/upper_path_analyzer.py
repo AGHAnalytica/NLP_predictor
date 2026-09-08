@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 class UpperPathAnalyzer(BaseAnalyzer):
-
     """
     This class encapsulates the logic for processing the upper path of the data
     pipeline. It includes methods for mapping news topics to financial instruments,
@@ -85,9 +84,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if mapped_df.empty:
             return pd.DataFrame()
 
-        logger.info(
-            "Generating trends per instrument using the DCIM model..."
-        )
+        logger.info("Generating trends per instrument using the DCIM model...")
 
         def _trend_for_instrument(item: tuple[str, pd.DataFrame]) -> dict:
             instrument, group = item
@@ -117,9 +114,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: Long-form rows with 'instrument', 'sentiment' and the carried
             topic/source/date columns. Empty if nothing mapped.
         """
-        logger.info(
-            "Starting topic to instrument mapping and sentiment analysis..."
-        )
+        logger.info("Starting topic to instrument mapping and sentiment analysis...")
 
         # Each topic maps independently, so fan the LLM calls out concurrently.
         self._mapping_failures = []
@@ -332,7 +327,6 @@ class UpperPathAnalyzer(BaseAnalyzer):
             logger.warning("Missing severity columns for variant; scoring 0.0.")
             return 0.0
         return model_fn(group, params, self.current_time, context)
-
 
     def _summaries_by_instrument(self, mapped_df: pd.DataFrame) -> dict[str, dict]:
         """LLM title/description/llm_direction per instrument, once per tick."""
