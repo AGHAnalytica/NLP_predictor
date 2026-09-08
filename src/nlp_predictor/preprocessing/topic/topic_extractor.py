@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import cast
 
@@ -8,6 +9,8 @@ from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
 from nlp_predictor.preprocessing.topic.topic import ExtractedTopic, ExtractedTopics
 from nlp_predictor.prompts import PROMPTS
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
@@ -89,7 +92,7 @@ class TopicExtractor(BaseAnalyzer):
             pd.DataFrame: The ``topics`` table with :attr:`OUTPUT_COLUMNS`.
         """
         if articles_df.empty:
-            print("[INFO] Articles DataFrame is empty. Nothing to extract.")
+            logger.info("Articles DataFrame is empty. Nothing to extract.")
             return pd.DataFrame(columns=self.OUTPUT_COLUMNS)
 
         date_col = self._resolve_date_column(articles_df)
@@ -101,7 +104,7 @@ class TopicExtractor(BaseAnalyzer):
         )
         rows = [row for article_rows in per_article_rows for row in article_rows]
 
-        print(f"[INFO] Extracted {len(rows)} topics from {len(articles)} articles.")
+        logger.info(f"Extracted {len(rows)} topics from {len(articles)} articles.")
         return pd.DataFrame(rows, columns=self.OUTPUT_COLUMNS)
 
     def _article_to_rows(self, article: pd.Series, date_col: str | None) -> list[dict]:
@@ -171,8 +174,8 @@ class TopicExtractor(BaseAnalyzer):
         for candidate in self._DATE_COLUMNS:
             if candidate in articles_df.columns:
                 return candidate
-        print(
-            "[WARNING] No date column found in articles "
+        logger.warning(
+            "No date column found in articles "
             f"(looked for {self._DATE_COLUMNS}). 'date' will be empty."
         )
         return None
@@ -200,28 +203,29 @@ class TopicExtractor(BaseAnalyzer):
         if not title and not content:
             return []
 
-        print(f"[INFO] Extracting topics from: {title[:60]}")
+        logger.info(f"Extracting topics from: {title[:60]}")
         prompt = PROMPTS["topic_extraction"].format(title=title, content=content)
 
         try:
             parsed = self._call_openai_api_with_retry(prompt, ExtractedTopics)
             return cast(ExtractedTopics, parsed).topics
         except Exception as e:  # noqa: BLE001 - never let one article kill the batch
-            print(f"[ERROR] Topic extraction failed for '{title[:50]}': {e}")
+            logger.error(f"Topic extraction failed for '{title[:50]}': {e}")
             return []
 
 
 if __name__ == "__main__":
-    print("====== TopicExtractor Module Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== TopicExtractor Module Test ======")
     try:
         extractor = TopicExtractor()
         df_articles = pd.read_csv(Config["ARTICLES_PATH"])
 
         topics = extractor.extract_topics(df_articles)
-        print("====== Topic Extraction Completed ======")
-        print(topics.to_string(index=False))
+        logger.info("====== Topic Extraction Completed ======")
+        logger.info(f"\n{topics.to_string(index=False)}")
 
         topics.to_csv(Config["TOPICS_SAVE_PATH_CSV"], index=False)
-        print(f"[DEBUG] Saved topics to {Config['TOPICS_SAVE_PATH_CSV']}")
+        logger.debug(f"Saved topics to {Config['TOPICS_SAVE_PATH_CSV']}")
     except Exception as e:
-        print(f"[FATAL ERROR] TopicExtractor test failed: {e}")
+        logger.error(f"TopicExtractor test failed: {e}", exc_info=True)

@@ -21,10 +21,13 @@ plus one shared macro LLM call. The durable output is the append-only signal log
 against.
 """
 
+import logging
+
 import pandas as pd
 from dotenv import load_dotenv
 
 from nlp_predictor.config import Config
+from nlp_predictor.logging_config import setup_logging
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
 from nlp_predictor.preprocessing.feature_store import FeatureStore
@@ -38,6 +41,8 @@ from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -57,14 +62,17 @@ def main() -> None:
     Returns:
         None
     """
-    print("====== [1/3] Scraping real articles (Group 1) ======")
+    if not logging.getLogger().hasHandlers():
+        setup_logging()
+
+    logger.info("====== [1/3] Scraping real articles (Group 1) ======")
     articles_df = run_real_scrapers()
     if articles_df.empty:
-        print("[INFO] No new articles scraped; running the tick on cached features.")
+        logger.info("No new articles scraped; running the tick on cached features.")
     else:
         if "source" in articles_df.columns:
             articles_df.rename(columns={"source": "source_name"}, inplace=True)
-        print(f"[INFO] Scraped {len(articles_df)} article(s).")
+        logger.info(f"Scraped {len(articles_df)} article(s).")
         # Persist the latest scrape for audit/debugging (not the cache of record).
         articles_df.to_csv(Config["ARTICLES_PATH"], index=False)
 
@@ -73,15 +81,15 @@ def main() -> None:
     upper = UpperPathAnalyzer(Config["INSTRUMENT_PATH"])
     lower = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
 
-    # ------------------------------------------------------------- WRITE half
-    print("\n====== [2/3] Ingesting new article features (Group 2 -> cache) ======")
+    # ============================== WRITE ==============================
+    logger.info("====== [2/3] Ingesting new article features (Group 2 -> cache) ======")
     ingestor = FeatureIngestor(
         store=store, extractor=TopicExtractor(), upper=upper, lower=lower
     )
     ingestor.ingest(articles_df if not articles_df.empty else pd.DataFrame())
 
-    # -------------------------------------------------------------- READ half
-    print("\n====== [3/3] Scoring variants -> signals (Group 3/4 + fusion) ======")
+    # ============================== READ ==============================
+    logger.info("====== [3/3] Scoring variants -> signals (Group 3/4 + fusion) ======")
     runner = TickRunner(
         store=store,
         upper=upper,
@@ -93,25 +101,26 @@ def main() -> None:
     signals = runner.run()
 
     if signals.empty:
-        print(
-            "\n[INFO] Tick produced no signals (feature store window empty). "
+        logger.info(
+            "Tick produced no signals (feature store window empty). "
             "This is expected until a few ticks have populated the store."
         )
     else:
         actionable = signals[signals["signal"] != "NEUTRAL"]
-        print(
-            f"\n[INFO] {len(actionable)} actionable of {len(signals)} signal(s) "
-            f"across {signals['variant'].nunique()} variant(s). Top calls:"
-        )
         cols = ["variant", "instrument", "signal", "confidence", "macro_context"]
-        print(
+        top_calls = (
             signals.sort_values("confidence", ascending=False)[cols]
             .head(10)
             .to_string(index=False)
         )
+        logger.info(
+            f"{len(actionable)} actionable of {len(signals)} signal(s) "
+            f"across {signals['variant'].nunique()} variant(s). Top calls:\n{top_calls}"
+        )
 
-    print("\n====== Tick complete ======")
+    logger.info("====== Tick complete ======")
 
 
 if __name__ == "__main__":
+    setup_logging()
     main()

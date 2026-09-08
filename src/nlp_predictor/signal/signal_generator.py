@@ -34,13 +34,16 @@ Output contract (one row per instrument, sorted by confidence):
 """
 
 import ast
+import logging
 import math
 import uuid
 from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 def _as_id_list(value: object) -> list:
@@ -129,7 +132,7 @@ class SignalGenerator:
             confidence.
         """
         if instrument_trends_df is None or instrument_trends_df.empty:
-            print("[INFO] No instrument trends; nothing to turn into signals.")
+            logger.info("No instrument trends; nothing to turn into signals.")
             return pd.DataFrame(columns=self.OUTPUT_COLUMNS)
 
         macro_index = self._build_macro_index(global_trends_df)
@@ -143,7 +146,7 @@ class SignalGenerator:
         result = pd.DataFrame(signals, columns=self.OUTPUT_COLUMNS)
         result = result.sort_values("confidence", ascending=False)
         result = result.reset_index(drop=True)
-        print(f"[INFO] Generated {len(result)} instrument signals.")
+        logger.info(f"Generated {len(result)} instrument signals.")
         return result
 
     def _build_macro_index(self, global_trends_df: pd.DataFrame | None) -> list[dict]:
@@ -538,7 +541,8 @@ class SignalGenerator:
 
 
 if __name__ == "__main__":
-    print("====== SignalGenerator Module Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== SignalGenerator Module Test ======")
     try:
         instrument_trends = pd.read_csv(Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"])
         try:
@@ -547,10 +551,10 @@ if __name__ == "__main__":
             global_trends = pd.DataFrame()
 
         signals = SignalGenerator().generate(instrument_trends, global_trends)
-        print("====== Signal Generation Completed ======")
-        print(signals.to_string(index=False))
+        logger.info("====== Signal Generation Completed ======")
+        logger.info(f"\n{signals.to_string(index=False)}")
 
         signals.to_csv(Config["SIGNALS_SAVE_PATH_CSV"], index=False)
-        print(f"[DEBUG] Saved signals to {Config['SIGNALS_SAVE_PATH_CSV']}")
+        logger.debug(f"Saved signals to {Config['SIGNALS_SAVE_PATH_CSV']}")
     except Exception as e:
-        print(f"[FATAL ERROR] SignalGenerator test failed: {e}")
+        logger.error(f"SignalGenerator test failed: {e}", exc_info=True)

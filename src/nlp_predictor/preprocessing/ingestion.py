@@ -25,6 +25,7 @@ This module owns only orchestration: it reuses the canonical embedding
 re-deriving them, so ingestion and the analytical paths can never drift apart.
 """
 
+import logging
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -34,6 +35,8 @@ from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.preprocessing.topic.topic_extractor import TopicExtractor
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureIngestor:
@@ -88,7 +91,7 @@ class FeatureIngestor:
             int: Number of per-topic rows newly cached (0 if nothing new / no topics).
         """
         if articles_df is None or articles_df.empty:
-            print("[INFO] Ingest: no articles scraped; feature store unchanged.")
+            logger.info("Ingest: no articles scraped; feature store unchanged.")
             return 0
         now = now or datetime.now(UTC)
 
@@ -101,20 +104,20 @@ class FeatureIngestor:
         known = self.store.known_doc_hashes()
         fresh = articles[~articles["doc_hash"].astype(str).isin(known)]
         if fresh.empty:
-            print(
-                f"[INFO] Ingest: all {len(articles)} scraped article(s) already "
+            logger.info(
+                f"Ingest: all {len(articles)} scraped article(s) already "
                 "cached; nothing to compute."
             )
             return 0
-        print(
-            f"[INFO] Ingest: {len(fresh)} new of {len(articles)} scraped article(s) "
+        logger.info(
+            f"Ingest: {len(fresh)} new of {len(articles)} scraped article(s) "
             "need features."
         )
 
         # 2) Extract topics ONLY for the new articles (the per-article LLM call).
         topics = self.extractor.extract_topics(fresh)
         if topics.empty:
-            print("[INFO] Ingest: new articles produced no topics.")
+            logger.info("Ingest: new articles produced no topics.")
             return 0
 
         # 3) Attach publisher + credibility (the severity models need both).
@@ -126,8 +129,8 @@ class FeatureIngestor:
 
         # 5) Persist. store.add reindexes to its schema, dedups defensively and prunes.
         self.store.add(enriched, now=now)
-        print(
-            f"[INFO] Ingest: cached {len(enriched)} topic row(s) from "
+        logger.info(
+            f"Ingest: cached {len(enriched)} topic row(s) from "
             f"{len(fresh)} new article(s)."
         )
         return len(enriched)
@@ -153,7 +156,7 @@ class FeatureIngestor:
         try:
             return pd.read_csv(self.weights_path)[["source_name", "source_weight"]]
         except (FileNotFoundError, KeyError, ValueError):
-            print("[WARNING] Ingest: source weights unavailable; defaulting to 1.0.")
+            logger.warning("Ingest: source weights unavailable; defaulting to 1.0.")
             return pd.DataFrame(columns=["source_name", "source_weight"])
 
     def _embed(self, enriched: pd.DataFrame) -> list[list[float]]:
@@ -172,7 +175,8 @@ class FeatureIngestor:
 
 
 if __name__ == "__main__":
-    print("====== FeatureIngestor Module Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== FeatureIngestor Module Test ======")
     from dotenv import load_dotenv
 
     from nlp_predictor.scraping.scrape_runner import run_real_scrapers
@@ -181,6 +185,6 @@ if __name__ == "__main__":
     try:
         scraped = run_real_scrapers()
         n = FeatureIngestor.build_default().ingest(scraped)
-        print(f"[INFO] Cached {n} new topic row(s).")
+        logger.info(f"Cached {n} new topic row(s).")
     except Exception as e:
-        print(f"[FATAL ERROR] FeatureIngestor test failed: {e}")
+        logger.error(f"FeatureIngestor test failed: {e}", exc_info=True)

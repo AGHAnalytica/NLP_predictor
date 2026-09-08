@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -18,8 +19,11 @@ from nlp_predictor.upper_path.instrument import (
     _quantize_sentiment,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class UpperPathAnalyzer(BaseAnalyzer):
+
     """
     This class encapsulates the logic for processing the upper path of the data
     pipeline. It includes methods for mapping news topics to financial instruments,
@@ -81,7 +85,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if mapped_df.empty:
             return pd.DataFrame()
 
-        print("[INFO] Generating trends per instrument using the DCIM model...")
+        logger.info(
+            "Generating trends per instrument using the DCIM model..."
+        )
 
         def _trend_for_instrument(item: tuple[str, pd.DataFrame]) -> dict:
             instrument, group = item
@@ -111,7 +117,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: Long-form rows with 'instrument', 'sentiment' and the carried
             topic/source/date columns. Empty if nothing mapped.
         """
-        print("[INFO] Starting topic to instrument mapping and sentiment analysis...")
+        logger.info(
+            "Starting topic to instrument mapping and sentiment analysis..."
+        )
 
         # Each topic maps independently, so fan the LLM calls out concurrently.
         self._mapping_failures = []
@@ -124,8 +132,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
         # Surface failed mappings: an errored topic returns [] just like a genuinely
         # irrelevant one, so without this a partial outage looks like "no signal".
         if self._mapping_failures:
-            print(
-                f"[WARNING] {len(self._mapping_failures)}/{len(topic_rows)} topic "
+            logger.warning(
+                f"{len(self._mapping_failures)}/{len(topic_rows)} topic "
                 "mappings FAILED (not the same as 'no instruments impacted'); "
                 "instrument signals may be incomplete."
             )
@@ -134,9 +142,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
         exploded_df = exploded_df.dropna(subset=["impacts"])
 
         if exploded_df.empty:
-            print(
-                "[WARNING] All topics were dropped after mapping. "
-                "The result will be empty."
+            logger.warning(
+                "All topics were dropped after mapping. The result will be empty."
             )
             return pd.DataFrame()
 
@@ -212,8 +219,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
                     )
                 )
 
-        print(
-            f"[INFO] Generated {len(rows)} variant trend rows across "
+        logger.info(
+            f"Generated {len(rows)} variant trend rows across "
             f"{len(variants)} variant(s)."
         )
         return pd.DataFrame(rows)
@@ -287,8 +294,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
                     }
                 )
 
-        print(
-            f"[INFO] Scored {len(rows)} (variant, instrument) signals across "
+        logger.info(
+            f"Scored {len(rows)} (variant, instrument) signals across "
             f"{len(variants)} variant(s) — no LLM (cached features)."
         )
         return pd.DataFrame(rows)
@@ -322,9 +329,10 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if group.empty:
             return 0.0
         if not all(col in group.columns for col in REQUIRED_COLUMNS):
-            print("[WARNING] Missing severity columns for variant; scoring 0.0.")
+            logger.warning("Missing severity columns for variant; scoring 0.0.")
             return 0.0
         return model_fn(group, params, self.current_time, context)
+
 
     def _summaries_by_instrument(self, mapped_df: pd.DataFrame) -> dict[str, dict]:
         """LLM title/description/llm_direction per instrument, once per tick."""
@@ -400,7 +408,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         )
 
         try:
-            print(f"[INFO] Processing topic: {row['topic_name'][:30]}...")
+            logger.info(f"Processing topic: {row['topic_name'][:30]}...")
 
             parsed_result = self._call_openai_api_with_retry(prompt, InstrumentMapping)
 
@@ -422,15 +430,15 @@ class UpperPathAnalyzer(BaseAnalyzer):
                     )
 
             if not valid_impacts and extracted_tickers:
-                print(
-                    "[DEBUG] Validated out hallucinatory tickers for '"
+                logger.debug(
+                    "Validated out hallucinatory tickers for '"
                     f"{row['topic_name']}' : {extracted_tickers}"
                 )
 
             return valid_impacts
 
         except Exception as e:
-            print(f"[ERROR] Mapping failed for '{row['topic_name']}': {e}")
+            logger.error(f"Mapping failed for '{row['topic_name']}': {e}")
             self._mapping_failures.append(str(row.get("topic_name", "?")))
             return []
 
@@ -458,9 +466,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         required_cols = ["date", "source_name", "sentiment", "source_weight"]
         if not all(col in group.columns for col in required_cols):
-            print(
-                "[WARNING] Missing severity columns. "
-                "Using simple article counter instead"
+            logger.warning(
+                "Missing severity columns. Using simple article counter instead"
             )
             return float(len(group))
 
@@ -590,6 +597,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             orient="records"
         )  # type: ignore[call-overload]
 
+        # TODO: move prompt to config
         prompt = f"""
         You are a senior financial analyst. Analyze the following news topics related to
         the instrument '{instrument}'. Determine the overall price trend direction
@@ -604,7 +612,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             parsed_result = self._call_openai_api_with_retry(prompt, InstrumentTrend)
             result = parsed_result.model_dump()
         except Exception as e:
-            print(f"[ERROR] Trend generation failed for '{instrument}': {e}")
+            logger.error(f"Trend generation failed for '{instrument}': {e}")
             result = {
                 "title": "Data aggregation error",
                 "description": "Failed to generate summary.",

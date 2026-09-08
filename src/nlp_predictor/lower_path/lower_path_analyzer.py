@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import cast
@@ -11,6 +12,8 @@ from nlp_predictor.config import Config
 from nlp_predictor.lower_path.global_trend import GlobalTrend
 from nlp_predictor.lower_path.severity_models import MACRO_SEVERITY_REGISTRY
 from nlp_predictor.prompts import PROMPTS
+
+logger = logging.getLogger(__name__)
 
 
 class LowerPathAnalyzer(BaseAnalyzer):
@@ -97,8 +100,8 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # letting the clusterer raise (and skip a pointless embedding call).
         min_cluster_size = int(Config["MIN_CLUSTER_SIZE"])
         if len(topics_df) < min_cluster_size:
-            print(
-                f"[INFO] Only {len(topics_df)} topic(s) (< MIN_CLUSTER_SIZE "
+            logger.info(
+                f"Only {len(topics_df)} topic(s) (< MIN_CLUSTER_SIZE "
                 f"{min_cluster_size}); no macro clusters."
             )
             return pd.DataFrame()
@@ -112,9 +115,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
             and topics_df["embedding"].apply(lambda v: isinstance(v, list)).all()
         )
         if has_cached:
-            print("[INFO] Reusing cached topic embeddings from the feature store.")
+            logger.info("Reusing cached topic embeddings from the feature store.")
         else:
-            print("[INFO] Requesting embeddings from OpenAI (Batch Mode)...")
+            logger.info("Requesting embeddings from OpenAI (Batch Mode)...")
             # Concatenate name + description for rich semantic meaning, then embed in
             # one single API call.
             topics_df["text_for_embedding"] = (
@@ -124,10 +127,10 @@ class LowerPathAnalyzer(BaseAnalyzer):
             try:
                 topics_df["embedding"] = self._generate_embeddings_batch(texts_list)
             except Exception as e:
-                print(f"[ERROR] Failed to generate embeddings: {e}")
+                logger.error(f"Failed to generate embeddings: {e}")
                 return pd.DataFrame()
 
-        print("[INFO] Clustering global topics using HDBSCAN...")
+        logger.info("Clustering global topics using HDBSCAN...")
         # 3. Apply HDBSCAN Clustering
         # min_cluster_size dictates the minimum number of articles to form a trend
         # TODO - Deftermine optimal min_cluster_size through experimentation
@@ -143,13 +146,12 @@ class LowerPathAnalyzer(BaseAnalyzer):
         clustered_df = topics_df[topics_df["cluster_id"] != -1]
 
         if clustered_df.empty:
-            print(
-                "[WARNING] No significant clusters found (all noise)."
-                + " Result is empty."
+            logger.warning(
+                "No significant clusters found (all noise). Result is empty."
             )
             return pd.DataFrame()
 
-        print("[INFO] Generating macro trends per cluster...")
+        logger.info("Generating macro trends per cluster...")
 
         # 5. Severity is local/cheap. Gate clusters on SIZE (raw topic count) — a
         # membership test kept separate from the weighted macro severity, so a small but
@@ -200,7 +202,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
             parsed_result = self._call_openai_api_with_retry(prompt, GlobalTrend)
             result = parsed_result.model_dump()
         except Exception as e:
-            print(f"[ERROR] Trend generation failed for cluster {cluster_id}: {e}")
+            logger.error(
+                f"Trend generation failed for cluster {cluster_id}: {e}"
+            )
             result = {
                 "title": "Macro aggregation error",
                 "description": "Failed to generate summary.",

@@ -31,6 +31,7 @@ fakes (no network); the only LLM-bound pieces (lower path + macro overlay) are t
 stubbed in tests.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -43,6 +44,8 @@ from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
+
+logger = logging.getLogger(__name__)
 
 
 class TickRunner:
@@ -119,20 +122,20 @@ class TickRunner:
         now = now or datetime.now(UTC)
         tick_id = str(uuid.uuid4())
         tick_time = now.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\n====== Tick {tick_id[:8]} @ {tick_time} ======")
+        logger.info(f"====== Tick {tick_id[:8]} @ {tick_time} ======")
 
         # 1) Read the widest retained window once; each variant slices its own
         #    sub-window inside score_variants, so the store is read once per tick.
         window = self.store.window(self.store.max_window_hours, now)
         mapped = FeatureStore.to_instrument_frame(window)
         if mapped.empty:
-            print("[INFO] Tick: feature store window is empty; no signals.")
+            logger.info("Tick: feature store window is empty; no signals.")
             return pd.DataFrame()
 
         # 2) Cheap, deterministic per-variant severity over the cached impacts (no LLM).
         variant_trends = self.upper.score_variants(mapped, self.variants, now)
         if variant_trends.empty:
-            print("[INFO] Tick: no variant produced in-window severity; no signals.")
+            logger.info("Tick: no variant produced in-window severity; no signals.")
             return pd.DataFrame()
 
         # 3) ONE shared climate for the whole tick: cluster the standard signal window,
@@ -159,33 +162,34 @@ class TickRunner:
             parts.append(signals)
 
         if not parts:
-            print("[INFO] Tick: variants produced no signals.")
+            logger.info("Tick: variants produced no signals.")
             return pd.DataFrame()
 
         all_signals = pd.concat(parts, ignore_index=True)
         n = self.log.append(all_signals)
         actionable = int((all_signals["signal"] != "NEUTRAL").sum())
-        print(
-            f"[INFO] Tick {tick_id[:8]}: logged {n} signal(s) across "
+        logger.info(
+            f"Tick {tick_id[:8]}: logged {n} signal(s) across "
             f"{len(parts)} variant(s); {actionable} actionable."
         )
         return all_signals
 
 
 if __name__ == "__main__":
-    print("====== TickRunner Single-Tick Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== TickRunner Single-Tick Test ======")
     from dotenv import load_dotenv
 
     load_dotenv(override=True)
     try:
         result = TickRunner.build_default().run()
         if result.empty:
-            print(
-                "[INFO] No signals produced. Populate the feature store first "
+            logger.info(
+                "No signals produced. Populate the feature store first "
                 "(the tick consumes already-cached article features)."
             )
         else:
             cols = ["variant", "instrument", "signal", "confidence", "macro_context"]
-            print(result[cols].to_string(index=False))
+            logger.info(f"\n{result[cols].to_string(index=False)}")
     except Exception as e:
-        print(f"[FATAL ERROR] TickRunner test failed: {e}")
+        logger.error(f"TickRunner test failed: {e}", exc_info=True)

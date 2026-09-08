@@ -29,11 +29,14 @@ On-disk schema (one row per (tick, variant, instrument), Parquet):
 """
 
 import json
+import logging
 import os
 
 import pandas as pd
 
-from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.config import Config
+
+logger = logging.getLogger(__name__)
 
 # Columns serialized to JSON on disk and parsed back into Python objects in memory.
 _JSON_COLUMNS = ("topic_ids",)
@@ -71,7 +74,7 @@ class SignalLog:
         """
         self.path = path
 
-    # ------------------------------------------------------------------ read
+    # ============================== READ ==============================
     def load(self) -> pd.DataFrame:
         """
         Read the entire signal history with JSON columns parsed back into objects.
@@ -92,7 +95,7 @@ class SignalLog:
                 df[col] = df[col].apply(self._from_json)
         return df
 
-    # ----------------------------------------------------------------- write
+    # ============================== WRITE ==============================
     def append(self, rows: pd.DataFrame) -> int:
         """
         Append one tick's signals to the log (append-only — never edits past rows).
@@ -123,7 +126,7 @@ class SignalLog:
         self._write_raw(combined)
         return len(incoming)
 
-    # ------------------------------------------------------------- internals
+    # ============================== INTERNALS ==============================
     def _load_raw(self) -> pd.DataFrame:
         """Read the log without parsing JSON columns (write-path helper)."""
         if not os.path.exists(self.path):
@@ -161,12 +164,12 @@ class SignalLog:
 
 
 if __name__ == "__main__":
-    print("====== SignalLog Module Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== SignalLog Module Test ======")
     log = SignalLog()
-    print(f"[INFO] Log path: {log.path}")
+    logger.info(f"Log path: {log.path}")
     df = log.load()
-    print(f"[INFO] Logged rows: {len(df)}")
+    logger.info(f"Logged rows: {len(df)}")
     if not df.empty:
         by_variant = df.groupby("variant")["signal"].value_counts()
-        print("[INFO] Signal counts by variant:")
-        print(by_variant.to_string())
+        logger.info(f"Signal counts by variant:\n{by_variant.to_string()}")

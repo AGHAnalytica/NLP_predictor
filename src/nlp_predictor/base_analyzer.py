@@ -1,3 +1,4 @@
+import logging
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
@@ -15,6 +16,8 @@ from tenacity import (
 )
 
 from nlp_predictor.config import Config
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -57,8 +60,8 @@ class BaseAnalyzer(ABC):
         stop=stop_after_attempt(10),
         wait=wait_exponential(multiplier=2, min=5, max=60),
         retry=retry_if_exception_type(RateLimitError),
-        before_sleep=lambda retry_state: print(
-            f"[WAIT] Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})"
+        before_sleep=lambda retry_state: logger.warning(
+            f"Rate limit hit. Sleeping... (Attempt {retry_state.attempt_number})"
         ),
     )
     def _call_openai_api_with_retry(
@@ -132,7 +135,7 @@ class BaseAnalyzer(ABC):
             bool: The return value. True for success, False otherwise.
         """
         if result_df.empty:
-            print("[INFO] DataFrame is empty. Skipping Parquet save operation.")
+            logger.info("DataFrame is empty. Skipping Parquet save operation.")
             return False
 
         try:
@@ -169,10 +172,10 @@ class BaseAnalyzer(ABC):
             )
 
             mode_str = "Appended to" if dataset_exists else "Created new"
-            print(f"[INFO] {mode_str} partitioned Parquet dataset at {output_path}")
+            logger.info(f"{mode_str} partitioned Parquet dataset at {output_path}")
             return True
         except Exception as e:
-            print(f"[ERROR] Failed to save results to Parquet: {e}")
+            logger.error(f"Failed to save results to Parquet: {e}")
             return False
 
     @abstractmethod

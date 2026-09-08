@@ -29,6 +29,7 @@ Output (:class:`MacroOverlay`):
     - climate_summary    : the text fed to the model, for audit/logging.
 """
 
+import logging
 import math
 from dataclasses import dataclass, field
 
@@ -37,6 +38,8 @@ from pydantic import BaseModel, Field
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import Config
+
+logger = logging.getLogger(__name__)
 
 _VALID_EFFECTS = ("tailwind", "headwind", "neutral")
 
@@ -70,7 +73,7 @@ class MacroOverlay:
             instrument, {"effect": "neutral", "strength": 0.0, "rationale": ""}
         )
 
-
+# TODO: move prompt to config
 _PROMPT = """You are a macro strategist. Below is the current market CLIMATE, then a
 list of instruments. For EACH instrument, decide how this climate affects its price over
 the next ~12-16 hours:
@@ -130,14 +133,14 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
             MacroOverlay: effects + conviction + the climate text used.
         """
         if global_trends_df is None or global_trends_df.empty:
-            print("[INFO] No macro trends; macro overlay is empty (no climate).")
+            logger.info("No macro trends; macro overlay is empty (no climate).")
             return MacroOverlay()
 
         climate = self._climate_summary(global_trends_df)
         conviction = self._conviction(global_trends_df)
         effects = self._map_climate(climate)
-        print(
-            f"[INFO] Macro overlay: {len(effects)} instruments mapped, "
+        logger.info(
+            f"Macro overlay: {len(effects)} instruments mapped, "
             f"climate conviction {conviction:.2f}."
         )
         return MacroOverlay(
@@ -184,7 +187,7 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         try:
             parsed = self._call_openai_api_with_retry(prompt, _MacroMapping)
         except Exception as e:  # noqa: BLE001 - a failed overlay just means no climate
-            print(f"[ERROR] Macro overlay mapping failed: {e}")
+            logger.error(f"Macro overlay mapping failed: {e}")
             return {}
 
         effects: dict[str, dict] = {}
@@ -208,14 +211,15 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
 
 
 if __name__ == "__main__":
-    print("====== MacroOverlayAnalyzer Module Test ======")
+    logging.basicConfig(level=logging.INFO)
+    logger.info("====== MacroOverlayAnalyzer Module Test ======")
     try:
         gt = pd.read_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"])
     except (FileNotFoundError, pd.errors.EmptyDataError):
         gt = pd.DataFrame()
     overlay = MacroOverlayAnalyzer().build(gt)
-    print(f"[INFO] Conviction: {overlay.conviction:.2f}")
+    logger.info(f"Conviction: {overlay.conviction:.2f}")
     for inst, eff in overlay.effects.items():
-        print(
+        logger.info(
             f"  {inst:8s} {eff['effect']:9s} {eff['strength']:.2f}  {eff['rationale']}"
         )

@@ -39,12 +39,15 @@ On-disk schema (one row per topic, Parquet):
 """
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.config import Config  # type: ignore
+from nlp_predictor.config import Config
+
+logger = logging.getLogger(__name__)
 
 # Columns serialized to JSON on disk and parsed back into Python objects in memory.
 _JSON_COLUMNS = ("embedding", "impacts")
@@ -89,7 +92,7 @@ class FeatureStore:
         self.path = path
         self.max_window_hours = float(max_window_hours)
 
-    # ------------------------------------------------------------------ read
+    # ============================== READ ==============================
     def load(self) -> pd.DataFrame:
         """
         Read the whole store into memory with JSON columns parsed back into objects.
@@ -149,7 +152,7 @@ class FeatureStore:
         cutoff = now - pd.Timedelta(hours=float(hours))
         return df[df["date"] >= cutoff].reset_index(drop=True)
 
-    # ----------------------------------------------------------------- write
+    # ============================== WRITE ==============================
     def add(self, records: pd.DataFrame, now: datetime | None = None) -> None:
         """
         Append newly computed topic features, then prune anything past the max window.
@@ -207,7 +210,7 @@ class FeatureStore:
         now = now or datetime.now(UTC)
         self._write_raw(self._prune_raw(self._load_raw(), now))
 
-    # ------------------------------------------------------------- transform
+    # ============================== TRANSFORM ==============================
     @staticmethod
     def to_instrument_frame(window_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -252,7 +255,7 @@ class FeatureStore:
                 )
         return pd.DataFrame(rows, columns=out_cols)
 
-    # ------------------------------------------------------------- internals
+    # ============================== INTERNALS ==============================
     def _load_raw(self) -> pd.DataFrame:
         """Read the store without parsing JSON columns (write-path helper)."""
         if not os.path.exists(self.path):
@@ -297,15 +300,16 @@ class FeatureStore:
 
 
 if __name__ == "__main__":
-    print("====== FeatureStore Module Test ======")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s") # noqa: E501
+    logger.info("====== FeatureStore Module Test ======")
     store = FeatureStore()
-    print(f"[INFO] Store path: {store.path}")
-    print(f"[INFO] Max retention: {store.max_window_hours}h")
+    logger.info(f"Store path: {store.path}")
+    logger.info(f"Max retention: {store.max_window_hours}h")
     df = store.load()
-    print(f"[INFO] Cached topic rows: {len(df)}")
+    logger.info(f"Cached topic rows: {len(df)}")
     if not df.empty:
         win = store.window(Config["SIGNAL_WINDOW_HOURS"])
-        print(
-            f"[INFO] In last {Config['SIGNAL_WINDOW_HOURS']}h: {len(win)} topics -> "
+        logger.info(
+            f"In last {Config['SIGNAL_WINDOW_HOURS']}h: {len(win)} topics -> "
             f"{len(FeatureStore.to_instrument_frame(win))} instrument impacts."
         )
