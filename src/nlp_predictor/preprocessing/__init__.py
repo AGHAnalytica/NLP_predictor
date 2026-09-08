@@ -20,4 +20,3 @@ __all__ = [
     "is_valid_article",
     "normalize_date_to_utc",
 ]
-

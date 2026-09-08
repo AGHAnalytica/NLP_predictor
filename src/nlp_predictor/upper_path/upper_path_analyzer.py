@@ -186,9 +186,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: Long-form trends with a 'variant' column. Empty if nothing
             mapped or no variant had in-window articles.
         """
-        variants = (
-            variants if variants is not None else config.severity.variants_list
-        )
+        variants = variants if variants is not None else config.severity.variants_list
         if topics_df.empty:
             return pd.DataFrame()
 
@@ -256,9 +254,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: One row per (variant, instrument) with a 'variant' column.
             Empty if nothing mapped or no variant had in-window articles.
         """
-        variants = (
-            variants if variants is not None else config.severity.variants_list
-        )
+        variants = variants if variants is not None else config.severity.variants_list
         if mapped_df is None or mapped_df.empty:
             return pd.DataFrame()
 

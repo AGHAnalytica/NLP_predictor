@@ -171,7 +171,9 @@ class AlpacaHistoricalFetcher:
 
             for item in articles:
                 article_id = str(item.get("id"))
-                article_url = item.get("url") or f"https://alpaca.markets/news/{article_id}"
+                article_url = (
+                    item.get("url") or f"https://alpaca.markets/news/{article_id}"
+                )
                 content = item.get("content", item.get("summary", ""))
                 doc_hash = generate_doc_hash(
                     content or item.get("headline", "") or article_id

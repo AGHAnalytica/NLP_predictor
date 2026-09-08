@@ -3,4 +3,3 @@
 from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
 
 __all__ = ["FeatureIngestor"]
-

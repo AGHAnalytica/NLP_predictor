@@ -7,4 +7,3 @@ from nlp_predictor.upper_path.models import (
 )
 
 __all__ = ["TickerImpact", "InstrumentMapping", "InstrumentTrend"]
-
