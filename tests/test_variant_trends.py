@@ -9,7 +9,8 @@ context, severity dispatch, and long-form row assembly.
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
+
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 

@@ -16,9 +16,9 @@ import math
 
 import numpy as np
 import pandas as pd
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
 
 from nlp_predictor.config import Config
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 RNG = np.random.default_rng(42)
 SENTIMENT_LEVELS = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])

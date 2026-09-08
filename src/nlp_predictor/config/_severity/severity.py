@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,8 +37,11 @@ class DCIMVariant(BaseModel):
     params: DCIMParams
 
 
-VariantType = BaselineVariant | DCIMVariant | AbnormalVolumeVariant
+VariantType = Annotated[
+    BaselineVariant | DCIMVariant | AbnormalVolumeVariant,
+    Field(discriminator="model"),
+]
 
 
 class Severity(BaseModel):
-    variants: dict[str, VariantType] = Field(discriminator="model")
+    variants: dict[str, VariantType]

@@ -58,6 +58,9 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.scripts]
+main = "nlp_predictor.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pre-commit>=3.6.0",

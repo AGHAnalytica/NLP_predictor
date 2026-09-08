@@ -13,13 +13,23 @@ import pathlib
 
 import pandas as pd
 from dotenv import load_dotenv
-from nlp_predictor.global_trends import LowerPathAnalyzer
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
-from nlp_predictor.topic.topic_extractor import TopicExtractor
 
 from nlp_predictor.config import REPO_ROOT, Config
-from nlp_predictor.main import _enrich_topics_for_upper_path
+from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
+from nlp_predictor.preprocessing.topic.topic_extractor import TopicExtractor
 from nlp_predictor.signal.signal_generator import SignalGenerator
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
+
+
+def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
+    articles_df = pd.read_csv(Config["ARTICLES_PATH"])[["doc_hash", "source_name"]]
+    weights_df = pd.read_csv(Config["WEIGHTS_PATH"])[["source_name", "source_weight"]]
+
+    enriched = topics_df.merge(articles_df, on="doc_hash", how="left")
+    enriched = enriched.merge(weights_df, on="source_name", how="left")
+    enriched["source_weight"] = enriched["source_weight"].fillna(1.0)
+    enriched["date"] = pd.to_datetime(enriched["date"], utc=True)
+    return enriched
 
 load_dotenv(override=True)
 

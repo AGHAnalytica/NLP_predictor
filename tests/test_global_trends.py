@@ -8,7 +8,8 @@ points, no network is touched and the assertions are purely about embedding beha
 from datetime import UTC, datetime
 
 import pandas as pd
-from nlp_predictor.global_trends import LowerPathAnalyzer
+
+from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 

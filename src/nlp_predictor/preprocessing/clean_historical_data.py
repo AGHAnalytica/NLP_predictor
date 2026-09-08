@@ -2,7 +2,8 @@ import logging
 import os
 
 import pandas as pd
-from clean_data import (
+
+from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
     is_valid_article,
