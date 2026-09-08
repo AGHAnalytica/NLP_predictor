@@ -16,8 +16,8 @@ class CNBCScraper(BaseScraper):
     Filters out CNBC Pro (paid) articles.
     """
 
-    def __init__(self, history_file: str = "data/scraped_history.parquet"):
-        super().__init__(history_file)
+    def __init__(self, history_file: str | None = None):
+        super().__init__(history_file=history_file)
 
         self.rss_feeds = [
             "https://www.cnbc.com/id/19836768/device/rss/rss.html",

@@ -1,15 +1,16 @@
+import asyncio
 import logging
 import os
 import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from typing import Any
-import asyncio
 
 import aiohttp
 import pandas as pd
 import requests
 
+from nlp_predictor.config import config
 from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
@@ -28,7 +29,7 @@ class BaseScraper(ABC):
     rocess articles. Now includes asynchronous fetching capabilities.
     """
 
-    def __init__(self, history_file: str = "data/scraping/scraped_history.parquet"):
+    def __init__(self, history_file: str | None = None):
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -37,7 +38,7 @@ class BaseScraper(ABC):
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )
-        self.history_file = history_file
+        self.history_file = history_file or str(config.paths.cache.scraped_history)
         self.history_df = self._load_history()
         self._cleanup_old_history()
 
@@ -186,7 +187,8 @@ class BaseScraper(ABC):
                         async with async_session.get(url, timeout=15) as response:
                             if response.status in (403, 429):
                                 logger.warning(
-                                    f"Async access blocked for {url}. (Status: {response.status}.)"
+                                    f"Async access blocked for {url}."
+                                    + f" (Status: {response.status}.)"
                                 )
                                 return url, ""
 

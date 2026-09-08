@@ -31,6 +31,7 @@ def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
     enriched["date"] = pd.to_datetime(enriched["date"], utc=True)
     return enriched
 
+
 load_dotenv(override=True)
 
 

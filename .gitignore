@@ -228,6 +228,9 @@ data/instrument_trends/
 data/historical/
 data/raw
 
+# Prevent accidental data storage inside src
+src/**/data/
+
 # Sphinx documentation
 docs/_build/
 docs/build/

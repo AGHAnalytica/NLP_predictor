@@ -21,3 +21,10 @@ paths:
 
   cache:
     feature_store: "data/feature_store/topic_features.parquet"
+    scraped_history: "data/scraped_history.parquet"
+
+  historical:
+    news_csv: "data/historical/alpaca_news.csv"
+    news_parquet: "data/historical/alpaca_news.parquet"
+    news_clean: "data/historical/alpaca_news_clean.parquet"
+    partitioned_dir: "data/historical/alpaca_news_partitioned"

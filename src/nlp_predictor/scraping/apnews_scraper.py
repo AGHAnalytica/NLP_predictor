@@ -16,8 +16,8 @@ class APNewsScraper(BaseScraper):
     from HTML hub pages (Business & Climate) and then fetches their content.
     """
 
-    def __init__(self, history_file: str = "data/scraped_history.parquet"):
-        super().__init__(history_file)
+    def __init__(self, history_file: str | None = None):
+        super().__init__(history_file=history_file)
         self.base_url = "https://apnews.com"
 
         self.hub_urls = [

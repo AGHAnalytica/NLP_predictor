@@ -53,6 +53,19 @@ class LogsPaths(BaseModel):
 
 class CachePaths(BaseModel):
     feature_store: Path
+    scraped_history: Path = Path("data/scraped_history.parquet")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def resolve_path(cls, v: Any) -> Path:
+        return _resolve_repo_path(v)
+
+
+class HistoricalPaths(BaseModel):
+    news_csv: Path = Path("data/historical/alpaca_news.csv")
+    news_parquet: Path = Path("data/historical/alpaca_news.parquet")
+    news_clean: Path = Path("data/historical/alpaca_news_clean.parquet")
+    partitioned_dir: Path = Path("data/historical/alpaca_news_partitioned")
 
     @field_validator("*", mode="before")
     @classmethod
@@ -65,3 +78,4 @@ class Paths(BaseModel):
     output: OutputPaths
     logs: LogsPaths
     cache: CachePaths
+    historical: HistoricalPaths = HistoricalPaths()

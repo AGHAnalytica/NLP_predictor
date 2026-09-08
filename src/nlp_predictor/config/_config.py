@@ -40,6 +40,13 @@ def _build_legacy_resolvers(cfg: "Config") -> dict[str, Callable[[], Any]]:
         "SIGNAL_LOG_PATH": lambda: str(cfg.paths.logs.signal_log),
         "LOG_PATH": lambda: str(cfg.paths.logs.log),
         "FEATURE_STORE_PATH": lambda: str(cfg.paths.cache.feature_store),
+        "SCRAPED_HISTORY_PATH": lambda: str(cfg.paths.cache.scraped_history),
+        "ALPACA_NEWS_CSV_PATH": lambda: str(cfg.paths.historical.news_csv),
+        "ALPACA_NEWS_PARQUET_PATH": lambda: str(cfg.paths.historical.news_parquet),
+        "ALPACA_NEWS_CLEAN_PATH": lambda: str(cfg.paths.historical.news_clean),
+        "ALPACA_NEWS_PARTITIONED_DIR": lambda: str(
+            cfg.paths.historical.partitioned_dir
+        ),
         "LLM_MODEL": lambda: cfg.hyperparams.models.llm,
         "EMBEDDING_MODEL": lambda: cfg.hyperparams.models.embedding,
         "SEVERITY_MODEL": lambda: cfg.hyperparams.models.severity_model,
@@ -55,12 +62,18 @@ def _build_legacy_resolvers(cfg: "Config") -> dict[str, Callable[[], Any]]:
         "DCIM_GAMMA_CONSENSUS": lambda: cfg.hyperparams.upper_path.dcim.gamma_consensus,
         "DCIM_DELTA_VELOCITY": lambda: cfg.hyperparams.upper_path.dcim.delta_velocity,
         "DCIM_KAPPA_SCALE": lambda: cfg.hyperparams.upper_path.dcim.kappa_scale,
-        "DCIM_RECENT_WINDOW_HOURS": lambda: cfg.hyperparams.upper_path.dcim.recent_window_hours,  # noqa: E501
+        "DCIM_RECENT_WINDOW_HOURS": lambda: (
+            cfg.hyperparams.upper_path.dcim.recent_window_hours
+        ),  # noqa: E501
         "SIGNAL_WINDOW_HOURS": lambda: cfg.hyperparams.windows.signal_hours,
-        "FEATURE_STORE_MAX_WINDOW_HOURS": lambda: cfg.hyperparams.windows.feature_store_max_hours,  # noqa: E501
+        "FEATURE_STORE_MAX_WINDOW_HOURS": lambda: (
+            cfg.hyperparams.windows.feature_store_max_hours
+        ),  # noqa: E501
         "SIGNAL_NEUTRAL_THRESHOLD": lambda: cfg.hyperparams.signal.neutral_threshold,
         "SIGNAL_MACRO_ALIGN_BONUS": lambda: cfg.hyperparams.signal.macro_align_bonus,
-        "SIGNAL_MACRO_CONFLICT_PENALTY": lambda: cfg.hyperparams.signal.macro_conflict_penalty,  # noqa: E501
+        "SIGNAL_MACRO_CONFLICT_PENALTY": lambda: (
+            cfg.hyperparams.signal.macro_conflict_penalty
+        ),  # noqa: E501
         "SIGNAL_MACRO_VETO": lambda: cfg.hyperparams.signal.macro_veto,
         "SIGNAL_VETO_COVERAGE": lambda: cfg.hyperparams.signal.veto_coverage,
         "SIGNAL_VETO_STRENGTH_CAP": lambda: cfg.hyperparams.signal.veto_strength_cap,

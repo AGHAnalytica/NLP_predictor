@@ -16,6 +16,8 @@ import requests
 from dotenv import load_dotenv
 from requests.exceptions import RequestException, Timeout
 
+from nlp_predictor.config import config
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -23,10 +25,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_OUTPUT_DIR = os.path.join(
-    CURRENT_DIR, "data", "historical", "alpaca_news_partitioned"
-)
+DEFAULT_OUTPUT_DIR = str(config.paths.historical.partitioned_dir)
 
 
 def generate_doc_hash(identifier: str) -> str:

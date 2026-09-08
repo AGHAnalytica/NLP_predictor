@@ -16,8 +16,8 @@ class BBCScraper(BaseScraper):
     Targets Business and Science/Environment sections.
     """
 
-    def __init__(self, history_file: str = "data/scraped_history.parquet"):
-        super().__init__(history_file)
+    def __init__(self, history_file: str | None = None):
+        super().__init__(history_file=history_file)
 
         self.rss_feeds = [
             "http://feeds.bbci.co.uk/news/business/rss.xml",

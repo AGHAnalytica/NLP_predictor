@@ -3,6 +3,7 @@ import os
 
 import pandas as pd
 
+from nlp_predictor.config import config
 from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
@@ -61,11 +62,7 @@ def process_historical_data(input_path: str, output_path: str):
 
 
 if __name__ == "__main__":
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    # testing, testing !!!
-    RAW_FILE = os.path.join(CURRENT_DIR, "data", "historical", "alpaca_news.parquet")
-    CLEANED_FILE = os.path.join(
-        CURRENT_DIR, "data", "historical", "alpaca_news_clean.parquet"
-    )
+    RAW_FILE = str(config.paths.historical.news_parquet)
+    CLEANED_FILE = str(config.paths.historical.news_clean)
 
     process_historical_data(input_path=RAW_FILE, output_path=CLEANED_FILE)
