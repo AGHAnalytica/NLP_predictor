@@ -6,6 +6,7 @@ import yaml
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
+from ._backtesting import BacktestingConfig
 from ._hyperparams import Hyperparams
 from ._paths import Paths
 from ._severity import Severity
@@ -115,6 +116,7 @@ class Config(BaseModel, metaclass=_ConfigMeta):
     paths: Paths
     hyperparams: Hyperparams
     severity: Severity
+    backtesting: BacktestingConfig = BacktestingConfig()
 
     def __getitem__(self, key: str) -> Any:
         return _get_legacy_value(key)
@@ -147,10 +149,18 @@ def _load_config() -> Config:
         severity_raw = yaml.safe_load(f) or {}
     severity_data = severity_raw.get("severity", severity_raw)
 
+    backtesting_data = {}
+    backtesting_yaml = _YAML_DIR / "backtesting.yaml"
+    if backtesting_yaml.exists():
+        with open(backtesting_yaml) as f:
+            backtesting_raw = yaml.safe_load(f) or {}
+        backtesting_data = backtesting_raw.get("backtesting", backtesting_raw)
+
     combined_config: dict[str, Any] = {
         "paths": paths_data,
         "hyperparams": hyperparams_data,
         "severity": severity_data,
+        "backtesting": backtesting_data,
     }
 
     return Config(**combined_config)

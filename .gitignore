@@ -230,6 +230,7 @@ data/raw
 
 # Prevent accidental data storage inside src
 src/**/data/
+!src/nlp_predictor/backtesting/data/
 
 # Sphinx documentation
 docs/_build/
