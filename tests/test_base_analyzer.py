@@ -64,3 +64,34 @@ def test_embeddings_batch_chunking(monkeypatch):
         assert len(calls[0].kwargs["input"]) == 100
         assert len(calls[1].kwargs["input"]) == 100
         assert len(calls[2].kwargs["input"]) == 50
+
+
+def test_is_transient_rate_limit():
+    from openai import RateLimitError
+
+    from nlp_predictor.base_analyzer import _is_transient_rate_limit
+
+    # Transient rate limit (TPM/RPM)
+    transient_err = RateLimitError(
+        message="Rate limit reached", response=MagicMock(), body=None
+    )
+    assert _is_transient_rate_limit(transient_err) is True
+
+    # Billing exhaustion - should fail fast and NOT retry
+    exhausted_body = {
+        "error": {
+            "message": "You have no credits remaining.",
+            "code": "credit_balance_exhausted",
+            "type": "insufficient_quota",
+        }
+    }
+    exhausted_err = RateLimitError(
+        message="Quota exceeded",
+        response=MagicMock(),
+        body=exhausted_body,
+    )
+    exhausted_err.code = "credit_balance_exhausted"
+    assert _is_transient_rate_limit(exhausted_err) is False
+
+    # Other non-rate-limit exceptions
+    assert _is_transient_rate_limit(ValueError("network down")) is False

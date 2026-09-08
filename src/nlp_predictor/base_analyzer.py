@@ -11,9 +11,10 @@ from openai import OpenAI, RateLimitError
 from pydantic import BaseModel
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
-    wait_random_exponential,
+    wait_exponential,
+    wait_random,
 )
 
 from nlp_predictor.config import config
@@ -22,6 +23,42 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+
+def _is_transient_rate_limit(exception: BaseException) -> bool:
+    """
+    Check if a RateLimitError is a temporary rate limit (TPM/RPM) that can be retried.
+    Do NOT retry permanent quota/credit exhaustion errors (e.g.
+    credit_balance_exhausted).
+    """
+    if isinstance(exception, RateLimitError):
+        code = getattr(exception, "code", None)
+        err_type = getattr(exception, "type", None)
+        body = getattr(exception, "body", None)
+        if isinstance(body, dict) and "error" in body:
+            err = body["error"]
+            if (
+                err.get("code") == "credit_balance_exhausted"
+                or err.get("type") == "insufficient_quota"
+            ):
+                logger.critical(
+                    "OpenAI billing error: No credits remaining on account "
+                    "(credit_balance_exhausted). Add credits at "
+                    "https://platform.openai.com/settings/organization/billing/."
+                )
+                return False
+        if (
+            code in ("credit_balance_exhausted", "insufficient_quota")
+            or err_type == "insufficient_quota"
+        ):
+            logger.critical(
+                "OpenAI billing error: No credits remaining on account "
+                "(credit_balance_exhausted). Add credits at "
+                "https://platform.openai.com/settings/organization/billing/."
+            )
+            return False
+        return True
+    return False
 
 
 class BaseAnalyzer(ABC):
@@ -73,8 +110,8 @@ class BaseAnalyzer(ABC):
 
     @retry(
         stop=stop_after_attempt(12),
-        wait=wait_random_exponential(min=4, max=60),
-        retry=retry_if_exception_type(RateLimitError),
+        wait=wait_exponential(multiplier=1.5, min=4, max=60) + wait_random(0.5, 3.0),
+        retry=retry_if_exception(_is_transient_rate_limit),
         before_sleep=lambda retry_state: logger.warning(
             f"Rate limit hit. Sleeping for {retry_state.upcoming_sleep:.1f}s... "
             f"(Attempt {retry_state.attempt_number})"
