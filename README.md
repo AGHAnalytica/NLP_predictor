@@ -1,14 +1,11 @@
 # AGH Analytica NLP Predictor
+### **Automated financial news analysis system**
 
-### **Automated financial news analysis system based on language models (LLM) using Dual Path Architecture.**
 
-
-<div align="center">
-
-<div align="center">
+<div align="left">
 
 ![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![LLM Provider](https://img.shields.io/badge/LLM_Provider-OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)
 
 ![uv](https://img.shields.io/badge/uv-Package_Manager-DE5FE9?style=for-the-badge)
@@ -16,16 +13,15 @@
 
 </div>
 
-</div>
 
 ## Project developed within the [AGH Analytica Student Research Group](https://github.com/AGHAnalytica) at [AGH University of Krakow](https://www.agh.edu.pl/) (2026).
 
-## 🛠️ Setup & Installation
+## Setup & Installation
 
 The NLP Predictor pipeline uses `pyproject.toml` for dependency management and the ultra-fast `uv` package manager.
 
 ### Prerequisites
-- **Python** (v3.14+)
+- **Python** (v3.11+)
 - **uv** - follow instructions at [official Astral page](https://docs.astral.sh/uv/getting-started/)
 - API key for [OpenAI API](https://platform.openai.com/api-keys)
 
@@ -57,7 +53,82 @@ OPENAI_API_KEY=your_api_key_goes_here
 
 ---
 
-## 📚 Documentation Generation
+## Architecture
+
+The NLP Predictor pipeline processes financial news streams through a modular **Dual-Path Architecture**, separating micro-level instrument sentiment from macro-level narrative context, before deterministically fusing them into trading signals:
+
+```mermaid
+flowchart TD
+    A[Scrapers: AP News, BBC, CNBC] -->|Raw Articles| B[Feature Ingestor]
+    B -->|Structured Extraction| C[Topic Extractor / LLM]
+    C -->|Embeddings & Topics| D[(Feature Store - Rolling Cache)]
+    
+    D -->|Cached Topics Window| E[Upper Path Analyzer]
+    D -->|Cached Embeddings Window| F[Lower Path Analyzer]
+    
+    E -->|Instrument Trends & Signed Severity| G[Signal Generator / Fusion]
+    F -->|HDBSCAN Clusters & Global Climate| H[Macro Overlay Analyzer]
+    H -->|Per-Instrument Effects & Conviction| G
+    
+    G -->|UP / DOWN / NEUTRAL + Confidence| I[(Signal Log / Eval Dataset)]
+    I -->|A/B/n Variants| J[Live Demo Routing / Realized PnL]
+```
+
+---
+
+## Data Flow Pipeline
+1. **Scraping (`nlp_predictor.scraping`)**:
+   - Fetches live feeds (AP News, BBC, CNBC) and historical dumps.
+   - Deduplicates and normalizes article metadata, publication timestamps, and content.
+2. **Feature Ingestion & Topic Extraction (`nlp_predictor.preprocessing`)**:
+   - Uses OpenAI Structured Outputs to extract fine-grained topics, financial instruments, and sentiments.
+   - Caches embeddings and topics in an append-only rolling `FeatureStore` (parquet-backed), ensuring expensive LLM calls occur only once per article.
+3. **Dual-Path Analysis**:
+   - **Upper Path (`nlp_predictor.upper_path`)**: Groups topics by traded instrument and computes directional severity using the DCIM model or A/B testing variants. Generates instrument trend narratives.
+   - **Lower Path (`nlp_predictor.lower_path`)**: Clusters topic embeddings via HDBSCAN to identify overarching macroeconomic trends. Computes macro severity and market climate.
+   - **Macro Overlay (`nlp_predictor.lower_path.macro_overlay`)**: Translates the macro climate into per-instrument effects (`tailwind`, `headwind`, `neutral`) with conviction weighting.
+4. **Deterministic Signal Fusion (`nlp_predictor.signal`)**:
+   - Fuses Upper Path directional severity (determining `UP` / `DOWN` / `NEUTRAL`) with Lower Path macro context.
+   - Modulates trade confidence and can veto weak contrarian signals fighting the macro climate.
+   - Outputs auditable signals with human-readable rationales to `SignalLog`.
+
+---
+
+## DCIM Model & Scoring
+
+The **Directional Confirmed Impact Model (DCIM)** evaluates signed instrument sentiment $S \in [-1.0, 1.0]$ across a rolling window of news topics through 5 mathematical phases:
+
+### Phase 1: Exponential Time Decay & Raw Impact
+Decays older articles based on their age $\Delta t$ relative to the current tick timestamp:
+$$w_{\text{decay}} = 2^{-\frac{\Delta t}{\tau}}$$
+where $\tau$ is `half_life_hours`. The per-article raw impact is:
+$$I_{\text{raw}} = \text{source\_weight} \cdot \text{sentiment} \cdot w_{\text{decay}}$$
+
+### Phase 2: Echo-Chamber Penalty
+Mitigates repetitive coverage from the same media publisher pushing in the same direction. For the $k$-th article from source $s$:
+$$p_k = 1.0 + \beta \cdot k, \quad k \in \{0, 1, 2, \dots\}$$
+$$\text{Impact}_s = \sum_{k} \frac{I_{\text{raw}, k}}{p_k}$$
+Diminishing returns prevent a single publisher from dominating the narrative.
+
+### Phase 3: Cross-Source Consensus Bonus
+Rewards broad agreement across $U$ independent news publishers. If $U \ge 2$:
+$$C = 1.0 + \gamma \cdot \frac{U_{\text{agree}}}{U}$$
+where $U_{\text{agree}}$ is the count of sources whose net sentiment agrees with the overall directional sign.
+
+### Phase 4: Velocity Multiplier
+Detects sudden surges in breaking news coverage:
+$$V = \frac{N_{\text{recent}}}{N_{\text{total}} + 1.0}, \quad M_V = 1.0 + \delta \cdot V$$
+where $N_{\text{recent}}$ is the number of articles published within `recent_window_hours`.
+
+### Phase 5: Scaling & Hyperbolic Tangent Squash
+Combines all phases and applies a smooth bounded activation:
+$$z = \kappa \cdot C \cdot M_V \cdot \sum_{s} \text{Impact}_s$$
+$$S_{\text{DCIM}} = \tanh(z) \in [-1.0, 1.0]$$
+The resulting signed score serves as the primary quantitative driver for direction and base confidence in signal generation.
+
+---
+
+## Documentation Generation
 
 Technical documentation for the NLP engine is generated automatically directly from the Python docstrings using **Sphinx**.
 
@@ -111,14 +182,9 @@ Open the **`index.html`** file from that directory in any web browser to view th
     file:///$YOUR_PATH$/NLP_predictor/docs/build/html/index.html
 ```
 
-## 🏗️ Architecture (TODO)
+---
 
-[TODO: Describe the data flow: Scraping -> Topic Extraction -> Upper Path / Lower Path -> Signal Fusion]
-
-## 🧮 DCIM Model & Scoring (TODO)
-[TODO]
-
-## 🧑‍💻 Contributors
+## Contributors
 | Name | GitHub | Role |
 | :--- | :--- | :--- |
 | **Norbert Jarzmik** | [![GitHub](https://img.shields.io/badge/-njarzmik-181717?style=flat&logo=github)](https://github.com/njarzmik) [![LinkedIn](https://img.shields.io/badge/-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://pl.linkedin.com/in/norbert-jarzmik-38802431b) | Team Leader / Researcher / Python Developer|

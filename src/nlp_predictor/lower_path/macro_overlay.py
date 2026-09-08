@@ -16,6 +16,7 @@ applied one level up. A probe (scripts/probe_macro_mapping.py) confirmed the con
 model handles the canonical mappings, including the haven inversions.
 
 Two deliberate properties keep this safe and clean:
+
 - It is computed ONCE per tick, shared across every A/B severity variant — so it is a
   constant across the comparison and cannot confound which severity model wins.
 - It only ever modulates CONFIDENCE downstream, never direction (direction stays the
@@ -23,10 +24,11 @@ Two deliberate properties keep this safe and clean:
   the model toward ``neutral`` so its errors fail toward "no opinion", the safe default.
 
 Output (:class:`MacroOverlay`):
-    - effects (dict)     : ``{instrument: {'effect', 'strength', 'rationale'}}``
-    - conviction (float) : [0, 1] overall climate strength (the quantitative macro
-                           severity) — scales how hard the overlay moves confidence.
-    - climate_summary    : the text fed to the model, for audit/logging.
+
+- effects (dict)     : ``{instrument: {'effect', 'strength', 'rationale'}}``
+- conviction (float) : [0, 1] overall climate strength (the quantitative macro
+  severity) — scales how hard the overlay moves confidence.
+- climate_summary    : the text fed to the model, for audit/logging.
 """
 
 import logging
@@ -38,6 +40,7 @@ from pydantic import BaseModel, Field
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
 from nlp_predictor.config import config
+from nlp_predictor.prompts import PROMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -72,28 +75,6 @@ class MacroOverlay:
         return self.effects.get(
             instrument, {"effect": "neutral", "strength": 0.0, "rationale": ""}
         )
-
-
-# TODO: move prompt to config
-_PROMPT = """You are a macro strategist. Below is the current market CLIMATE, then a
-list of instruments. For EACH instrument, decide how this climate affects its price over
-the next ~12-16 hours:
-- "tailwind" = the climate pushes its price UP
-- "headwind" = the climate pushes its price DOWN
-- "neutral"  = no clear, direct effect
-Return an effect, a strength (0.0-1.0) and a one-line rationale for every instrument.
-Guidance: risk assets (equities, oil, crypto) tend to RISE in optimistic/risk-on
-climates and FALL in fearful/risk-off ones. Safe havens (gold, government bonds, the US
-dollar) tend to move the OPPOSITE way, rising when fearful. Weigh what the climate is
-specifically about, not just whether it is positive or negative. Only choose
-tailwind/headwind when the effect is clear and direct; otherwise neutral.
-
-CLIMATE:
-{climate}
-
-INSTRUMENTS:
-{instruments}
-"""
 
 
 class MacroOverlayAnalyzer(BaseAnalyzer):
@@ -184,7 +165,9 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
 
     def _map_climate(self, climate: str) -> dict[str, dict]:
         """One structured LLM call: climate -> per-instrument effect, validated."""
-        prompt = _PROMPT.format(climate=climate, instruments=self._instrument_block())
+        prompt = PROMPTS["macro_overlay"].format(
+            climate=climate, instruments=self._instrument_block()
+        )
         try:
             parsed = self._call_openai_api_with_retry(prompt, _MacroMapping)
         except Exception as e:  # noqa: BLE001 - a failed overlay just means no climate

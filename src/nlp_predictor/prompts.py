@@ -35,7 +35,7 @@ PROMPTS = {
     # These are the prompt templates for the OpenAI API calls, stored in a dictionary
     # for easy access.
     # ============================
-    # Topic Extraction Prompt (Group 2)
+    # Topic Extraction Prompt
     # ============================
     "topic_extraction": """
         You are a financial news analyst. Your ONLY job is to read the article below
@@ -157,6 +157,43 @@ PROMPTS = {
         and a 1-2 sentence description explaining the global impact.
 
         Cluster Topics Context:
+        {topics_context}
+        """,
+    # ============================
+    # Macro Overlay Prompt
+    # ============================
+    "macro_overlay": """
+        You are a macro strategist. Below is the current market CLIMATE, then a
+        list of instruments. For EACH instrument, decide how this climate affects
+        its price over the next ~12-16 hours:
+        - "tailwind" = the climate pushes its price UP
+        - "headwind" = the climate pushes its price DOWN
+        - "neutral"  = no clear, direct effect
+        Return an effect, a strength (0.0-1.0) and a one-line rationale for every
+        instrument.
+        Guidance: risk assets (equities, oil, crypto) tend to RISE in optimistic
+        or risk-on climates and FALL in fearful/risk-off ones. Safe havens (gold,
+        government bonds, the US dollar) tend to move the OPPOSITE way, rising
+        when fearful. Weigh what the climate is specifically about, not just whether
+        it is positive or negative. Only choose tailwind/headwind when the effect is
+        clear and direct; otherwise neutral.
+
+        CLIMATE:
+        {climate}
+
+        INSTRUMENTS:
+        {instruments}
+        """,
+    # ============================
+    # Instrument Summary Prompt
+    # ============================
+    "instrument_summary": """
+        You are a senior financial analyst. Analyze the following news topics related to
+        the instrument '{instrument}'. Determine the overall price trend direction
+        ('up', 'down', or 'neutral'). Provide a concise title and a 1-2 sentence
+        description explaining the aggregate impact.
+
+        Topics Context:
         {topics_context}
         """,
 }

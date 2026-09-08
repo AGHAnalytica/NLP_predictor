@@ -593,16 +593,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
             orient="records"
         )  # type: ignore[call-overload]
 
-        # TODO: move prompt to config
-        prompt = f"""
-        You are a senior financial analyst. Analyze the following news topics related to
-        the instrument '{instrument}'. Determine the overall price trend direction
-        ('up', 'down', or 'neutral'). Provide a concise title and a 1-2 sentence
-        description explaining the aggregate impact.
-
-        Topics Context:
-        {topics_context}
-        """
+        prompt = PROMPTS["instrument_summary"].format(
+            instrument=instrument, topics_context=topics_context
+        )
 
         try:
             parsed_result = self._call_openai_api_with_retry(prompt, InstrumentTrend)

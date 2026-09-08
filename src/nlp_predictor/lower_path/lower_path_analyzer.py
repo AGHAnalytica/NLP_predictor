@@ -87,17 +87,17 @@ class LowerPathAnalyzer(BaseAnalyzer):
 
         Args:
             topics_df (pd.DataFrame): DataFrame containing the topics with columns
-            ['topic_id', 'topic_name', 'topic_description', 'date'] (plus
-            'source_weight' for the weighted macro severity).
+                ``['topic_id', 'topic_name', 'topic_description', 'date']`` (plus
+                ``'source_weight'`` for the weighted macro severity).
             now (datetime | None): Reference time for the macro-severity time decay;
-            defaults to ``datetime.now(UTC)``. The tick passes its own clock so the
-            decay is consistent with the article dates the clusters are built from.
+                defaults to ``datetime.now(UTC)``. The tick passes its own clock so the
+                decay is consistent with the article dates the clusters are built from.
 
         Returns:
             pd.DataFrame: A DataFrame containing the identified global trends with
-            columns ['trend_id', 'current_time', 'first_article_time',
-            'newest_article_time', 'cluster_id', 'title', 'description', 'severity',
-            'n_topics', 'direction', 'topic_ids'].
+                columns ``['trend_id', 'current_time', 'first_article_time',
+                'newest_article_time', 'cluster_id', 'title', 'description',
+                'severity', 'n_topics', 'direction', 'topic_ids']``.
         """
         if topics_df.empty:
             return pd.DataFrame()

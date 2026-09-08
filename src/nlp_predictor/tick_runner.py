@@ -12,8 +12,10 @@ What makes a tick cheap (the whole reason the feature store exists): the expensi
 stochastic work — topic extraction, embeddings, topic->instrument mapping — was paid for
 ONCE when each article entered the store, and is reused for every tick the article stays
 in-window (~16 of them). So a tick recomputes only:
+
   1. severity per (variant, window)             — deterministic, no LLM
   2. the macro climate + per-instrument overlay — ONE shared LLM call, not per-variant
+
 Keeping the macro overlay shared (not per-variant) is what stops it confounding the
 comparison: it is a constant across the variants being scored this tick.
 
@@ -53,6 +55,7 @@ class TickRunner:
     Runs one tick: cached features -> per-variant signals -> eval log.
 
     Collaborators are injected so the runner stays a thin, testable orchestrator:
+
     - ``store``  : the rolling :class:`FeatureStore` (already-cached topic features).
     - ``upper``  : :class:`UpperPathAnalyzer`, used ONLY via the LLM-free
       :meth:`UpperPathAnalyzer.score_variants`.

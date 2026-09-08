@@ -1,6 +1,19 @@
 nlp\_predictor package
 ======================
 
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   nlp_predictor.config
+   nlp_predictor.lower_path
+   nlp_predictor.preprocessing
+   nlp_predictor.scraping
+   nlp_predictor.signal
+   nlp_predictor.upper_path
+
 Submodules
 ----------
 
@@ -12,34 +25,10 @@ nlp\_predictor.base\_analyzer module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.cleaner module
------------------------------
+nlp\_predictor.logging\_config module
+-------------------------------------
 
-.. automodule:: nlp_predictor.cleaner
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-nlp\_predictor.config module
-----------------------------
-
-.. automodule:: nlp_predictor.config
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-nlp\_predictor.global\_trends module
-------------------------------------
-
-.. automodule:: nlp_predictor.global_trends
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
-nlp\_predictor.instrument\_trends module
-----------------------------------------
-
-.. automodule:: nlp_predictor.instrument_trends
+.. automodule:: nlp_predictor.logging_config
    :members:
    :show-inheritance:
    :undoc-members:
@@ -60,18 +49,18 @@ nlp\_predictor.prompts module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.signal\_generator module
----------------------------------------
+nlp\_predictor.tick module
+--------------------------
 
-.. automodule:: nlp_predictor.signal_generator
+.. automodule:: nlp_predictor.tick
    :members:
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.topic\_extractor module
---------------------------------------
+nlp\_predictor.tick\_runner module
+----------------------------------
 
-.. automodule:: nlp_predictor.topic_extractor
+.. automodule:: nlp_predictor.tick_runner
    :members:
    :show-inheritance:
    :undoc-members:

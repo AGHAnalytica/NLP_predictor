@@ -34,7 +34,7 @@ class BaseScraper(ABC):
         self.session.headers.update(
             {
                 # change the email later
-                "User-Agent": "AGH_Analityca_scraper/1.0 (contact: papiezpolak2137@gmail.com)",  # noqa: E501
+                "User-Agent": "AGH_Analytica_scraper/1.0 (contact: agh_analytica@gmail.com)",  # noqa: E501
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )
