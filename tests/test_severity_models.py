@@ -141,3 +141,25 @@ def test_dcim_matches_legacy_numbers():
         severity_dcim(g, legacy, NOW, None) == round(expected, 12)
         or abs(severity_dcim(g, legacy, NOW, None) - expected) < 1e-9
     )
+
+
+def test_dcim_mixed_sentiments_same_source():
+    # 1. A negative article from the same source MUST reduce the severity compared to
+    # positive only.
+    pos_only = _group([(1.0, "Bloomberg", 0.8, 1.0)])
+    mixed = _group([(1.0, "Bloomberg", 0.8, 1.0), (2.0, "Bloomberg", -0.4, 1.0)])
+    sev_pos = severity_dcim(pos_only, DCIM_PARAMS, NOW, None)
+    sev_mixed = severity_dcim(mixed, DCIM_PARAMS, NOW, None)
+    assert 0.0 < sev_mixed < sev_pos, "Negative article should reduce bullish severity"
+
+    # 2. Equal and opposite articles published simultaneously must cancel out to 0.0.
+    symmetric = _group([(1.0, "Bloomberg", 0.8, 1.0), (1.0, "Bloomberg", -0.8, 1.0)])
+    sev_sym = severity_dcim(symmetric, DCIM_PARAMS, NOW, None)
+    assert abs(sev_sym) < 1e-9, "Equal and opposite articles should cancel out to 0.0"
+
+    # 3. Echo-chamber penalty still applies to same-sign articles (sublinear growth).
+    two_pos = _group([(1.0, "Bloomberg", 0.8, 1.0), (2.0, "Bloomberg", 0.8, 1.0)])
+    sev_two = severity_dcim(two_pos, DCIM_PARAMS, NOW, None)
+    assert sev_two > sev_pos
+    # Diminishing returns: second article has lower weight than first
+    assert sev_two < 2.0 * sev_pos

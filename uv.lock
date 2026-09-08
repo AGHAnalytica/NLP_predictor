@@ -1748,6 +1748,11 @@ test = [
     { name = "pytest-cov" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
@@ -1776,6 +1781,9 @@ requires-dist = [
     { name = "trafilatura", specifier = ">=2.0.0" },
 ]
 provides-extras = ["dev", "lint", "test"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.16.6" }]
 
 [[package]]
 name = "nodeenv"

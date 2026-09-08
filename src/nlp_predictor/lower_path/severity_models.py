@@ -93,18 +93,25 @@ def severity_dcim(
     temp_df["raw_impact"] = raw_impacts
     temp_df = temp_df.sort_values(by="date", ascending=False)
 
-    # PHASE 2 - echo-chamber penalty (diminishing returns per extra same-source article)
+    # PHASE 2 - echo-chamber penalty (diminishing returns per extra same-source article
+    # in the same direction)
     beta = _p(params, "beta_penalty")
     source_impacts = []
     for _, s_group in temp_df.groupby("source_name"):
-        n_s = len(s_group)
-        j_indices = np.arange(n_s)
-        penalties = 1.0 + beta * j_indices
-        abs_impacts = np.abs(s_group["raw_impact"].values)
-        penalized_sum = np.sum(abs_impacts / penalties)
-        mean_impact = s_group["raw_impact"].mean()
-        sign_s = np.sign(mean_impact) if mean_impact != 0 else 1.0
-        source_impacts.append(sign_s * penalized_sum)
+        s_sorted = s_group.sort_values(by="date", ascending=False)
+        pos_impacts = s_sorted[s_sorted["raw_impact"] > 0]["raw_impact"].to_numpy()
+        neg_impacts = s_sorted[s_sorted["raw_impact"] < 0]["raw_impact"].to_numpy()
+
+        pos_penalties = 1.0 + beta * np.arange(len(pos_impacts))
+        neg_penalties = 1.0 + beta * np.arange(len(neg_impacts))
+
+        pos_sum = (
+            float(np.sum(pos_impacts / pos_penalties)) if len(pos_impacts) > 0 else 0.0
+        )
+        neg_sum = (
+            float(np.sum(neg_impacts / neg_penalties)) if len(neg_impacts) > 0 else 0.0
+        )
+        source_impacts.append(pos_sum + neg_sum)
 
     source_impacts = np.array(source_impacts)
     total_impact_sum = np.sum(source_impacts)

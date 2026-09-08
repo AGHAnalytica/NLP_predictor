@@ -5,7 +5,6 @@ Provides resilient pagination, rate-limit backoff, and chunked Parquet export
 using Hive partitioning schemes.
 """
 
-import hashlib
 import logging
 import os
 import time
@@ -17,6 +16,7 @@ from dotenv import load_dotenv
 from requests.exceptions import RequestException, Timeout
 
 from nlp_predictor.config import config
+from nlp_predictor.preprocessing.clean_data import generate_doc_hash
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -26,19 +26,6 @@ logger = logging.getLogger(__name__)
 load_dotenv(override=True)
 
 DEFAULT_OUTPUT_DIR = str(config.paths.historical.partitioned_dir)
-
-
-def generate_doc_hash(identifier: str) -> str:
-    """
-    Generate a deterministic 16-character SHA-256 hash from an identifier string.
-
-    Args:
-        identifier: Unique string (e.g., article ID or canonical URL).
-
-    Returns:
-        A 16-character hexadecimal string.
-    """
-    return hashlib.sha256(str(identifier).encode("utf-8")).hexdigest()[:16]
 
 
 def _flush_batch_to_parquet(records: list[dict], output_dir: str) -> None:
@@ -175,14 +162,18 @@ def fetch_alpaca_historical_news(
         for item in articles:
             article_id = str(item.get("id"))
             article_url = item.get("url") or f"https://alpaca.markets/news/{article_id}"
+            content = item.get("content", item.get("summary", ""))
+            doc_hash = generate_doc_hash(
+                content or item.get("headline", "") or article_id
+            )
 
             record = {
-                "doc_hash": generate_doc_hash(article_id),
+                "doc_hash": doc_hash,
                 "source": item.get("source", "alpaca"),
                 "url": article_url,
                 "date": item.get("created_at"),
                 "title": item.get("headline", ""),
-                "content": item.get("content", item.get("summary", "")),
+                "content": content,
             }
             collected_records.append(record)
             total_fetched += 1
