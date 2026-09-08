@@ -8,7 +8,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 
 def setup_logging(
@@ -18,7 +18,7 @@ def setup_logging(
     """
     Configure application logging to both console and a daily log file.
 
-    Log file path is derived from Config["LOG_PATH"] (default: logs/{date}.log)
+    Log file path is derived from config.paths.logs.log (default: logs/{date}.log)
     or custom log_dir if provided.
 
     Args:
@@ -34,7 +34,7 @@ def setup_logging(
     if log_dir is not None:
         log_file = (Path(log_dir) / f"{date_str}.log").resolve()
     else:
-        log_path_str = str(Config["LOG_PATH"]).format(date=date_str)
+        log_path_str = str(config.paths.logs.log).format(date=date_str)
         log_file = Path(log_path_str).resolve()
 
     log_file.parent.mkdir(parents=True, exist_ok=True)

@@ -170,7 +170,7 @@ def severity_abnormal_volume(
     return float(np.clip(direction * magnitude, -1.0, 1.0))
 
 
-# Name -> function. A variant in Config["SEVERITY_VARIANTS"] selects a model by name.
+# Name -> function. A variant in config.severity.variants selects a model by name.
 SEVERITY_REGISTRY = {
     "baseline": severity_baseline,
     "dcim": severity_dcim,
@@ -226,7 +226,8 @@ def macro_severity_decayed(
     return float((group["source_weight"] * decay_factors).sum())
 
 
-# Name -> function. Config["MACRO_SEVERITY_MODEL"] picks which one the lower path uses.
+# Name -> function. config.hyperparams.lower_path.macro_severity_model picks which one
+# the lower path uses.
 MACRO_SEVERITY_REGISTRY = {
     "count": macro_severity_count,
     "decayed_weighted": macro_severity_decayed,

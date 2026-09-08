@@ -1,8 +1,8 @@
+import asyncio
 import logging
 import xml.etree.ElementTree as ET
 
 import pandas as pd
-import asyncio
 
 from nlp_predictor.scraping.base_scraper import BaseScraper
 

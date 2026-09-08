@@ -34,7 +34,7 @@ import os
 
 import pandas as pd
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class SignalLog:
         "rationale",
     ]
 
-    def __init__(self, path: str = Config["SIGNAL_LOG_PATH"]):
+    def __init__(self, path: str = str(config.paths.logs.signal_log)):
         """
         Args:
             path (str): Parquet file backing the log. Created lazily on first

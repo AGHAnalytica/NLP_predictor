@@ -15,7 +15,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class BaseAnalyzer(ABC):
 
         """
         response = self.client.beta.chat.completions.parse(
-            model=str(Config["LLM_MODEL"]),
+            model=str(config.hyperparams.models.llm),
             messages=[
                 {"role": "user", "content": prompt},
             ],

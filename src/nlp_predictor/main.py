@@ -17,8 +17,8 @@ Because the expensive, stochastic work (extraction, embeddings, topic->instrumen
 mapping) is cached on first sight of an article and reused for every later tick it stays
 in-window, a steady-state tick mostly does cheap, deterministic severity recomputation
 plus one shared macro LLM call. The durable output is the append-only signal log
-(``Config["SIGNAL_LOG_PATH"]``) — the dataset each variant's demo-account PnL is scored
-against.
+(``config.paths.logs.signal_log``) — the dataset each variant's demo-account PnL is
+scored against.
 """
 
 import logging
@@ -26,17 +26,17 @@ import logging
 import pandas as pd
 from dotenv import load_dotenv
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 from nlp_predictor.logging_config import setup_logging
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
+from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
 from nlp_predictor.preprocessing.feature_store import FeatureStore
-from nlp_predictor.preprocessing.ingestion import FeatureIngestor
-from nlp_predictor.preprocessing.topic.topic_extractor import TopicExtractor
+from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
 from nlp_predictor.scraping.scrape_runner import run_real_scrapers
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
-from nlp_predictor.tick import TickRunner
+from nlp_predictor.tick_runner import TickRunner
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 # Load environment variables (OPENAI_API_KEY) from the project-root .env
@@ -74,27 +74,27 @@ def main() -> None:
             articles_df.rename(columns={"source": "source_name"}, inplace=True)
         logger.info(f"Scraped {len(articles_df)} article(s).")
         # Persist the latest scrape for audit/debugging (not the cache of record).
-        articles_df.to_csv(Config["ARTICLES_PATH"], index=False)
+        articles_df.to_csv(config.paths.input.articles, index=False)
 
     # One shared stack for both halves of the tick.
     store = FeatureStore()
-    upper = UpperPathAnalyzer(Config["INSTRUMENT_PATH"])
-    lower = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
+    upper = UpperPathAnalyzer(str(config.paths.input.instruments))
+    lower = LowerPathAnalyzer(str(config.paths.input.instruments))
 
-    # ============================== WRITE ==============================
+    # ------------------------------------------------------------- WRITE half
     logger.info("====== [2/3] Ingesting new article features (Group 2 -> cache) ======")
     ingestor = FeatureIngestor(
         store=store, extractor=TopicExtractor(), upper=upper, lower=lower
     )
     ingestor.ingest(articles_df if not articles_df.empty else pd.DataFrame())
 
-    # ============================== READ ==============================
+    # -------------------------------------------------------------- READ half
     logger.info("====== [3/3] Scoring variants -> signals (Group 3/4 + fusion) ======")
     runner = TickRunner(
         store=store,
         upper=upper,
         lower=lower,
-        macro=MacroOverlayAnalyzer(Config["INSTRUMENT_PATH"]),
+        macro=MacroOverlayAnalyzer(str(config.paths.input.instruments)),
         signal=SignalGenerator(),
         log=SignalLog(),
     )

@@ -41,7 +41,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class SignalGenerator:
         Returns:
             float: Conviction in [0, 1].
         """
-        scale = float(Config["MACRO_CONVICTION_SCALE"])
+        scale = float(config.hyperparams.signal.macro_conviction_scale)
         if scale <= 0.0 or not macro_index:
             return 0.0
 
@@ -407,8 +407,8 @@ class SignalGenerator:
             )
         macro_factor = (
             1.0
-            + float(Config["SIGNAL_MACRO_ALIGN_BONUS"]) * agree_cov
-            - float(Config["SIGNAL_MACRO_CONFLICT_PENALTY"]) * conflict_cov
+            + float(config.hyperparams.signal.macro_align_bonus) * agree_cov
+            - float(config.hyperparams.signal.macro_conflict_penalty) * conflict_cov
         )
         macro_factor = max(0.0, macro_factor)
         confidence = base_conf * macro_factor
@@ -416,13 +416,13 @@ class SignalGenerator:
         # 3) Gating + macro veto -> the final discrete decision.
         signal = sev_direction.upper()
         gate_reason = ""
-        if strength < float(Config["SIGNAL_NEUTRAL_THRESHOLD"]):
+        if strength < float(config.hyperparams.signal.neutral_threshold):
             signal = "NEUTRAL"
             gate_reason = f"|severity| {strength:.2f} below trade threshold"
         elif (
-            bool(Config["SIGNAL_MACRO_VETO"])
-            and conflict_cov >= float(Config["SIGNAL_VETO_COVERAGE"])
-            and strength < float(Config["SIGNAL_VETO_STRENGTH_CAP"])
+            bool(config.hyperparams.signal.macro_veto)
+            and conflict_cov >= float(config.hyperparams.signal.veto_coverage)
+            and strength < float(config.hyperparams.signal.veto_strength_cap)
         ):
             signal = "NEUTRAL"
             gate_reason = (
@@ -547,9 +547,9 @@ if __name__ == "__main__":
     )  # noqa: E501
     logger.info("====== SignalGenerator Module Test ======")
     try:
-        instrument_trends = pd.read_csv(Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"])
+        instrument_trends = pd.read_csv(config.paths.output.instrument_trends_csv)
         try:
-            global_trends = pd.read_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"])
+            global_trends = pd.read_csv(config.paths.output.global_trends_csv)
         except (FileNotFoundError, pd.errors.EmptyDataError):
             global_trends = pd.DataFrame()
 
@@ -557,7 +557,7 @@ if __name__ == "__main__":
         logger.info("====== Signal Generation Completed ======")
         logger.info(f"\n{signals.to_string(index=False)}")
 
-        signals.to_csv(Config["SIGNALS_SAVE_PATH_CSV"], index=False)
-        logger.debug(f"Saved signals to {Config['SIGNALS_SAVE_PATH_CSV']}")
+        signals.to_csv(config.paths.output.signals_csv, index=False)
+        logger.debug(f"Saved signals to {config.paths.output.signals_csv}")
     except Exception as e:
         logger.error(f"SignalGenerator test failed: {e}", exc_info=True)

@@ -1,9 +1,10 @@
+import asyncio
 import logging
 from urllib.parse import urljoin
 
 import pandas as pd
 from bs4 import BeautifulSoup  # type: ignore
-import asyncio
+
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)

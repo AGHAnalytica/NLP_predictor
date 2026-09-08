@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 from nlp_predictor.lower_path.severity_models import (
     REQUIRED_COLUMNS,
     SEVERITY_REGISTRY,
@@ -13,7 +13,7 @@ from nlp_predictor.lower_path.severity_models import (
     severity_dcim,
 )
 from nlp_predictor.prompts import PROMPTS
-from nlp_predictor.upper_path.instrument import (
+from nlp_predictor.upper_path.models import (
     InstrumentMapping,
     InstrumentTrend,
     _quantize_sentiment,
@@ -38,7 +38,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
     trends for each instrument, ready to be saved as a partitioned Parquet dataset.
     """
 
-    def __init__(self, instruments_path: str = Config["INSTRUMENT_PATH"]):
+    def __init__(self, instruments_path: str = str(config.paths.input.instruments)):
         super().__init__()
 
         # Load available instruments and create a context string for the LLM
@@ -177,7 +177,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             topics_df (pd.DataFrame): Enriched topics (same input as
                 :meth:`process_data`).
             variants (list[dict] | None): Variant specs; defaults to
-                ``Config["SEVERITY_VARIANTS"]``. Each has 'name', 'model',
+                ``config.severity.variants_list``. Each has 'name', 'model',
                 'window_hours' and 'params'.
             now (datetime | None): Reference time for windowing/decay; defaults to
                 ``datetime.now(UTC)``. Injectable for deterministic tests.
@@ -186,7 +186,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: Long-form trends with a 'variant' column. Empty if nothing
             mapped or no variant had in-window articles.
         """
-        variants = variants if variants is not None else Config["SEVERITY_VARIANTS"]
+        variants = (
+            variants if variants is not None else config.severity.variants_list
+        )
         if topics_df.empty:
             return pd.DataFrame()
 
@@ -246,7 +248,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             mapped_df (pd.DataFrame): Pre-mapped long-form impacts from the feature
                 store.
             variants (list[dict] | None): Variant specs; defaults to
-                ``Config["SEVERITY_VARIANTS"]``.
+                ``config.severity.variants_list``.
             now (datetime | None): Reference time for windowing/decay; defaults to
                 ``datetime.now(UTC)``.
 
@@ -254,7 +256,9 @@ class UpperPathAnalyzer(BaseAnalyzer):
             pd.DataFrame: One row per (variant, instrument) with a 'variant' column.
             Empty if nothing mapped or no variant had in-window articles.
         """
-        variants = variants if variants is not None else Config["SEVERITY_VARIANTS"]
+        variants = (
+            variants if variants is not None else config.severity.variants_list
+        )
         if mapped_df is None or mapped_df.empty:
             return pd.DataFrame()
 
@@ -440,7 +444,8 @@ class UpperPathAnalyzer(BaseAnalyzer):
         """
         Score a financial instrument's directional severity in [-1.0, 1.0].
 
-        Dispatches to the model selected by ``Config["SEVERITY_MODEL"]``:
+        Dispatches to the model selected by
+        ``config.hyperparams.models.severity_model``:
         - ``"dcim"``     : the full Directional Confirmed Impact Model.
         - ``"baseline"`` : a minimal time-decayed, source-weighted sentiment sum.
         Both share these guards and output range, so they can be A/B'd against each
@@ -465,7 +470,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
             )
             return float(len(group))
 
-        if Config.get("SEVERITY_MODEL", "dcim") == "baseline":
+        if config.hyperparams.models.severity_model == "baseline":
             return self._severity_baseline(group)
         return self._severity_dcim(group)
 
@@ -508,14 +513,15 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
     @staticmethod
     def _dcim_params_from_config() -> dict:
-        """Build a severity-model params dict from the global ``DCIM_*`` Config keys."""
+        """Build a severity-model params dict from typed DCIM configuration."""
+        dcim = config.hyperparams.upper_path.dcim
         return {
-            "half_life_hours": Config["DCIM_HALF_LIFE_HOURS"],
-            "beta_penalty": Config["DCIM_BETA_PENALTY"],
-            "gamma_consensus": Config["DCIM_GAMMA_CONSENSUS"],
-            "delta_velocity": Config["DCIM_DELTA_VELOCITY"],
-            "kappa_scale": Config["DCIM_KAPPA_SCALE"],
-            "recent_window_hours": Config["DCIM_RECENT_WINDOW_HOURS"],
+            "half_life_hours": dcim.half_life_hours,
+            "beta_penalty": dcim.beta_penalty,
+            "gamma_consensus": dcim.gamma_consensus,
+            "delta_velocity": dcim.delta_velocity,
+            "kappa_scale": dcim.kappa_scale,
+            "recent_window_hours": dcim.recent_window_hours,
         }
 
     def _generate_instrument_trend(

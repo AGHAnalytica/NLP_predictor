@@ -6,8 +6,8 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
-from nlp_predictor.config import Config
-from nlp_predictor.preprocessing.topic.topic import ExtractedTopic, ExtractedTopics
+from nlp_predictor.config import config
+from nlp_predictor.preprocessing.topic import ExtractedTopic, ExtractedTopics
 from nlp_predictor.prompts import PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -222,13 +222,13 @@ if __name__ == "__main__":
     logger.info("====== TopicExtractor Module Test ======")
     try:
         extractor = TopicExtractor()
-        df_articles = pd.read_csv(Config["ARTICLES_PATH"])
+        df_articles = pd.read_csv(config.paths.input.articles)
 
         topics = extractor.extract_topics(df_articles)
         logger.info("====== Topic Extraction Completed ======")
         logger.info(f"\n{topics.to_string(index=False)}")
 
-        topics.to_csv(Config["TOPICS_SAVE_PATH_CSV"], index=False)
-        logger.debug(f"Saved topics to {Config['TOPICS_SAVE_PATH_CSV']}")
+        topics.to_csv(config.paths.output.topics_csv, index=False)
+        logger.debug(f"Saved topics to {config.paths.output.topics_csv}")
     except Exception as e:
         logger.error(f"TopicExtractor test failed: {e}", exc_info=True)

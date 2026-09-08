@@ -15,7 +15,7 @@ from nlp_predictor.lower_path.macro_overlay import MacroOverlay
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
-from nlp_predictor.tick import TickRunner
+from nlp_predictor.tick_runner import TickRunner
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)

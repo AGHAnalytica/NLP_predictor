@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -84,7 +84,7 @@ class BBCScraper(BaseScraper):
         expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
 
         if not pending_articles:
-            logger.info(f"No new articles to fetch.")
+            logger.info("No new articles to fetch.")
             return pd.DataFrame(columns=expected_columns)
 
         urls_to_fetch = list(pending_articles.keys())

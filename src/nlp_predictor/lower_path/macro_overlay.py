@@ -37,7 +37,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
     BaseAnalyzer interface; the real entry point is :meth:`build`.
     """
 
-    def __init__(self, instruments_path: str = Config["INSTRUMENT_PATH"]):
+    def __init__(self, instruments_path: str = str(config.paths.input.instruments)):
         super().__init__()
         self.instruments_df = pd.read_csv(instruments_path)
         self.valid_tickers = set(self.instruments_df["ticker"].dropna().astype(str))
@@ -179,7 +179,7 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
             .fillna(0.0)
             .sum()
         )
-        scale = float(Config["MACRO_CONVICTION_SCALE"])
+        scale = float(config.hyperparams.signal.macro_conviction_scale)
         return float(math.tanh(total / scale)) if scale > 0 else 0.0
 
     def _map_climate(self, climate: str) -> dict[str, dict]:
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger.info("====== MacroOverlayAnalyzer Module Test ======")
     try:
-        gt = pd.read_csv(Config["GLOBAL_TRENDS_SAVE_PATH_CSV"])
+        gt = pd.read_csv(config.paths.output.global_trends_csv)
     except (FileNotFoundError, pd.errors.EmptyDataError):
         gt = pd.DataFrame()
     overlay = MacroOverlayAnalyzer().build(gt)

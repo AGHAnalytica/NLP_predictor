@@ -45,7 +45,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,8 @@ class FeatureStore:
 
     def __init__(
         self,
-        path: str = Config["FEATURE_STORE_PATH"],
-        max_window_hours: float = Config["FEATURE_STORE_MAX_WINDOW_HOURS"],
+        path: str = str(config.paths.cache.feature_store),
+        max_window_hours: float = config.hyperparams.windows.feature_store_max_hours,
     ):
         """
         Args:
@@ -139,7 +139,7 @@ class FeatureStore:
 
         Args:
             hours (float): Lookback window in hours
-                (e.g. ``Config["SIGNAL_WINDOW_HOURS"]``).
+                (e.g. ``config.hyperparams.windows.signal_hours``).
             now (datetime | None): Reference time; defaults to ``datetime.now(UTC)``.
 
         Returns:
@@ -311,8 +311,8 @@ if __name__ == "__main__":
     df = store.load()
     logger.info(f"Cached topic rows: {len(df)}")
     if not df.empty:
-        win = store.window(Config["SIGNAL_WINDOW_HOURS"])
+        win = store.window(config.hyperparams.windows.signal_hours)
         logger.info(
-            f"In last {Config['SIGNAL_WINDOW_HOURS']}h: {len(win)} topics -> "
+            f"In last {config.hyperparams.windows.signal_hours}h: {len(win)} topics -> "
             f"{len(FeatureStore.to_instrument_frame(win))} instrument impacts."
         )

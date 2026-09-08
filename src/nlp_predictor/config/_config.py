@@ -78,15 +78,7 @@ def _build_legacy_resolvers(cfg: "Config") -> dict[str, Callable[[], Any]]:
         "SIGNAL_VETO_COVERAGE": lambda: cfg.hyperparams.signal.veto_coverage,
         "SIGNAL_VETO_STRENGTH_CAP": lambda: cfg.hyperparams.signal.veto_strength_cap,
         "MACRO_CONVICTION_SCALE": lambda: cfg.hyperparams.signal.macro_conviction_scale,
-        "SEVERITY_VARIANTS": lambda: [
-            {
-                "name": name,
-                "model": v.model,
-                "window_hours": v.window_hours,
-                "params": v.params.model_dump(),
-            }
-            for name, v in cfg.severity.variants.items()
-        ],
+        "SEVERITY_VARIANTS": lambda: cfg.severity.variants_list,
     }
 
 

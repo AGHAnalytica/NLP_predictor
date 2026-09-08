@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.cluster import HDBSCAN
 
 from nlp_predictor.base_analyzer import BaseAnalyzer
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 from nlp_predictor.lower_path.global_trend import GlobalTrend
 from nlp_predictor.lower_path.severity_models import MACRO_SEVERITY_REGISTRY
 from nlp_predictor.prompts import PROMPTS
@@ -22,7 +22,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
     similar topics together and generating a macro trend summary for each cluster.
     """
 
-    def __init__(self, instrument_path: str = Config["INSTRUMENT_PATH"]):
+    def __init__(self, instrument_path: str = str(config.paths.input.instruments)):
         super().__init__()
         self.instrument_path = instrument_path
 
@@ -40,7 +40,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         """
         response = self.client.embeddings.create(
             input=texts,
-            model=str(Config["EMBEDDING_MODEL"]),
+            model=str(config.hyperparams.models.embedding),
         )
         # Extract the embedding vectors in the exact order of the input texts
         return [embedding.embedding for embedding in response.data]
@@ -50,8 +50,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
         Score a cluster's macro severity — its UNSIGNED narrative intensity (the weight
         the climate conviction leans on), not its direction.
 
-        Dispatches to the model named by ``Config["MACRO_SEVERITY_MODEL"]`` from
-        :data:`severity_models.MACRO_SEVERITY_REGISTRY` (``count`` or the default
+        Dispatches to the model named by
+        ``config.hyperparams.lower_path.macro_severity_model``
+        from :data:`severity_models.MACRO_SEVERITY_REGISTRY` (``count`` or the default
         ``decayed_weighted`` = source-weighted, time-decayed volume), so the macro
         severity is an A/B knob just like the upper-path severity. Recency uses
         ``self.current_time`` (the tick clock), keeping it consistent with the article
@@ -65,8 +66,10 @@ class LowerPathAnalyzer(BaseAnalyzer):
             float: A non-negative intensity; larger = a bigger / fresher / more credible
             narrative.
         """
-        model = MACRO_SEVERITY_REGISTRY[str(Config["MACRO_SEVERITY_MODEL"])]
-        return model(group, Config["MACRO_SEVERITY_PARAMS"], self.current_time)
+        macro_model_name = str(config.hyperparams.lower_path.macro_severity_model)
+        model = MACRO_SEVERITY_REGISTRY[macro_model_name]
+        params = {"half_life_hours": config.hyperparams.lower_path.half_life_hours}
+        return model(group, params, self.current_time)
 
     def process_data(
         self, topics_df: pd.DataFrame, now: datetime | None = None
@@ -98,7 +101,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # HDBSCAN needs at least MIN_CLUSTER_SIZE samples; fewer cannot form a cluster
         # anyway. A live tick's window can be that thin, so short-circuit instead of
         # letting the clusterer raise (and skip a pointless embedding call).
-        min_cluster_size = int(Config["MIN_CLUSTER_SIZE"])
+        min_cluster_size = int(config.hyperparams.lower_path.min_cluster_size)
         if len(topics_df) < min_cluster_size:
             logger.info(
                 f"Only {len(topics_df)} topic(s) (< MIN_CLUSTER_SIZE "
@@ -135,7 +138,9 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # min_cluster_size dictates the minimum number of articles to form a trend
         # TODO - Deftermine optimal min_cluster_size through experimentation
         clusterer = HDBSCAN(
-            min_cluster_size=Config["MIN_CLUSTER_SIZE"], metric="euclidean", copy=True
+            min_cluster_size=config.hyperparams.lower_path.min_cluster_size,
+            metric="euclidean",
+            copy=True,
         )
 
         # Convert list of lists to a 2D numpy array for scikit-learn
@@ -157,7 +162,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         # membership test kept separate from the weighted macro severity, so a small but
         # fresh/credible cluster is not filtered out by a low conviction weight. Then
         # generate each surviving macro summary concurrently (one LLM call per cluster).
-        size_threshold = int(Config["SEVERITY_THRESHOLD"])
+        size_threshold = int(config.hyperparams.lower_path.severity_threshold)
         candidates: list[tuple[int, pd.DataFrame, float]] = []
         for cluster_id, group in clustered_df.groupby("cluster_id"):
             group = cast(pd.DataFrame, group)

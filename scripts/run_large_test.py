@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 from nlp_predictor.config import REPO_ROOT, Config
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
-from nlp_predictor.preprocessing.topic.topic_extractor import TopicExtractor
+from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
 from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
