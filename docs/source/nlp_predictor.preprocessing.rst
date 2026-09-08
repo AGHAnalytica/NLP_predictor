@@ -12,14 +12,6 @@ nlp\_predictor.preprocessing.clean\_data module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.preprocessing.clean\_historical\_data module
------------------------------------------------------------
-
-.. automodule:: nlp_predictor.preprocessing.clean_historical_data
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 nlp\_predictor.preprocessing.feature\_ingestor module
 -----------------------------------------------------
 

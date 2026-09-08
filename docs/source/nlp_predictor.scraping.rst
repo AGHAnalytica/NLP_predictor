@@ -36,14 +36,6 @@ nlp\_predictor.scraping.cnbc\_scraper module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.scraping.historical\_fetcher module
---------------------------------------------------
-
-.. automodule:: nlp_predictor.scraping.historical_fetcher
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 nlp\_predictor.scraping.scrape\_runner module
 ---------------------------------------------
 

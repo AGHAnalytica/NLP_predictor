@@ -7,6 +7,7 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   nlp_predictor.backtesting
    nlp_predictor.config
    nlp_predictor.core
    nlp_predictor.lower_path
