@@ -14,16 +14,21 @@ import pathlib
 import pandas as pd
 from dotenv import load_dotenv
 
-from nlp_predictor.config import REPO_ROOT, Config
-from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
-from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
-from nlp_predictor.signal.signal_generator import SignalGenerator
-from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
+from nlp_predictor.config import REPO_ROOT, config
+from nlp_predictor.lower_path import LowerPathAnalyzer
+from nlp_predictor.preprocessing import TopicExtractor
+from nlp_predictor.signal import SignalGenerator
+from nlp_predictor.upper_path import UpperPathAnalyzer
 
 
-def _enrich_topics_for_upper_path(topics_df: pd.DataFrame) -> pd.DataFrame:
-    articles_df = pd.read_csv(Config["ARTICLES_PATH"])[["doc_hash", "source_name"]]
-    weights_df = pd.read_csv(Config["WEIGHTS_PATH"])[["source_name", "source_weight"]]
+def _enrich_topics_for_upper_path(
+    topics_df: pd.DataFrame, articles_path: str | None = None
+) -> pd.DataFrame:
+    path = articles_path or str(config.paths.input.articles)
+    articles_df = pd.read_csv(path)[["doc_hash", "source_name"]]
+    weights_df = pd.read_csv(config.paths.input.weights)[
+        ["source_name", "source_weight"]
+    ]
 
     enriched = topics_df.merge(articles_df, on="doc_hash", how="left")
     enriched = enriched.merge(weights_df, on="source_name", how="left")
@@ -55,14 +60,13 @@ def _refresh_dates(topics: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    # Point the whole pipeline at the larger corpus (also used by the enrich step).
-    Config["ARTICLES_PATH"] = str(
+    large_articles_path = str(
         REPO_ROOT / "data" / "scraping" / "articles_sample_large.csv"
     )
     pd.set_option("display.width", 200)
     pd.set_option("display.max_colwidth", 70)
 
-    articles = pd.read_csv(Config["ARTICLES_PATH"])
+    articles = pd.read_csv(large_articles_path)
     print(f"====== [1/5] {len(articles)} articles ======")
 
     # Reuse cached topics if present so a re-run isolates downstream changes
@@ -80,12 +84,13 @@ def main() -> None:
         topics = _refresh_dates(topics)
         print("[INFO] Refreshed topic timestamps so the batch looks freshly scraped.")
 
-    enriched = _enrich_topics_for_upper_path(topics)
-    instruments = UpperPathAnalyzer(Config["INSTRUMENT_PATH"]).process_data(enriched)
+    inst_path = str(config.paths.input.instruments)
+    enriched = _enrich_topics_for_upper_path(topics, articles_path=large_articles_path)
+    instruments = UpperPathAnalyzer(inst_path).process_data(enriched)
     instruments.to_csv(_out("instrument_trends_report_large.csv"), index=False)
     print(f"====== [3/5] {len(instruments)} instrument trends ======")
 
-    macro = LowerPathAnalyzer(Config["INSTRUMENT_PATH"]).process_data(topics.copy())
+    macro = LowerPathAnalyzer(inst_path).process_data(topics.copy())
     macro.to_csv(_out("global_trends_report_large.csv"), index=False)
     print(f"====== [4/5] {len(macro)} macro trends ======")
 

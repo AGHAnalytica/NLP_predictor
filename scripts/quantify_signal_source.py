@@ -17,12 +17,12 @@ import math
 import numpy as np
 import pandas as pd
 
-from nlp_predictor.config import Config
-from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
+from nlp_predictor.config import config
+from nlp_predictor.upper_path import UpperPathAnalyzer
 
 RNG = np.random.default_rng(42)
 SENTIMENT_LEVELS = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
-SOURCES = pd.read_csv(Config["WEIGHTS_PATH"])  # source_name, source_weight
+SOURCES = pd.read_csv(config.paths.input.weights)  # source_name, source_weight
 NOW = pd.Timestamp.now(tz="UTC")
 
 
@@ -48,7 +48,7 @@ def _make_group(n, sentiments, weights, ages_hours):
 # ---------------------------------------------------------------- A) empirical
 def measure_empirical():
     df = pd.read_csv(
-        Config["INSTRUMENT_TRENDS_SAVE_PATH_CSV"].replace(
+        str(config.paths.output.instrument_trends_csv).replace(
             "instrument_trends_report", "instrument_trends_report_large"
         )
     )

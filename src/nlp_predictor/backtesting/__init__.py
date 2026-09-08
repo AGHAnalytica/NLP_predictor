@@ -24,4 +24,3 @@ __all__ = [
     "YahooPriceFetcher",
     "DEFAULT_MACRO_TICKERS",
 ]
-

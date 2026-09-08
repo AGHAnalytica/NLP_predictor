@@ -8,7 +8,7 @@ import math
 
 import pandas as pd
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
 from nlp_predictor.lower_path.macro_overlay import (
     MacroOverlay,
     MacroOverlayAnalyzer,
@@ -53,7 +53,7 @@ def test_build_empty_when_no_trends():
 def test_conviction_is_tanh_of_total_severity():
     a = _analyzer()
     gt = _global_trends([("A", "up", 6), ("B", "down", 4)])  # total 10
-    scale = float(Config["MACRO_CONVICTION_SCALE"])
+    scale = float(config.hyperparams.signal.macro_conviction_scale)
     assert a._conviction(gt) == math.tanh(10.0 / scale)
 
 

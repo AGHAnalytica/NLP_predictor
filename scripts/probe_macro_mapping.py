@@ -1,5 +1,5 @@
 """
-Probe: can the configured LLM (Config["LLM_MODEL"], currently gpt-5-nano) map an
+Probe: can the configured LLM (config.hyperparams.models.llm) map an
 aggregate market CLIMATE to each instrument's effect (tailwind / headwind / neutral)?
 
 This de-risks step 3b before we build it. It tests the real production call shape — one
@@ -13,16 +13,18 @@ It reports overall accuracy, and separately the accuracy on the HARD subset (saf
 If GUIDED clears the bar, nano is good enough with scaffolding; if not, bump the model
 for this one (shared, once-per-tick) call.
 
-Run:  .venv/Scripts/python.exe scripts/probe_macro_mapping.py
+Run:  uv run python scripts/probe_macro_mapping.py
 """
 
 import os
+import re
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from nlp_predictor.config import Config
+from nlp_predictor.config import config
+from nlp_predictor.prompts import PROMPTS
 
 load_dotenv(override=True)
 
@@ -106,28 +108,12 @@ SCENARIOS = [
     },
 ]
 
-_BASE = """You are a macro strategist. Below is the current market CLIMATE, then a list
-of instruments. For EACH instrument, decide how this climate affects its price over the
-next ~12-16 hours:
-- "tailwind" = the climate pushes its price UP
-- "headwind" = the climate pushes its price DOWN
-- "neutral"  = no clear, direct effect
-Return an effect, a strength (0.0-1.0) and a one-line rationale for every instrument.
-{guidance}
-CLIMATE:
-{climate}
+# Canonical prompt template from the centralized prompts module
+_CANONICAL_PROMPT = PROMPTS["macro_overlay"]
 
-INSTRUMENTS:
-{instruments}
-"""
-
-_GUIDANCE = (
-    "Guidance: risk assets (equities, oil, crypto) tend to RISE in optimistic/risk-on "
-    "climates and FALL in fearful/risk-off ones. Safe havens (gold, government bonds, "
-    "and often the US dollar) tend to move the OPPOSITE way, rising when fearful. "
-    "Weigh what the climate is specifically about, not just whether it is "
-    "positive or negative. Only choose tailwind/headwind when the effect is clear and "
-    "direct; otherwise neutral.\n"
+# For minimal mode testing: strip the guidance block to test zero-guidance baseline
+_MINIMAL_PROMPT = re.sub(
+    r"Guidance:.*?(?=\n\s*CLIMATE:)", "", _CANONICAL_PROMPT, flags=re.DOTALL
 )
 
 _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -135,7 +121,7 @@ _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def _call(prompt: str) -> MacroMapping:
     resp = _client.beta.chat.completions.parse(
-        model=str(Config["LLM_MODEL"]),
+        model=str(config.hyperparams.models.llm),
         messages=[{"role": "user", "content": prompt}],
         response_format=MacroMapping,
     )
@@ -144,17 +130,19 @@ def _call(prompt: str) -> MacroMapping:
 
 def _run_mode(guided: bool) -> None:
     label = "GUIDED" if guided else "MINIMAL"
-    print(f"\n{'=' * 70}\n  MODE: {label}  (model: {Config['LLM_MODEL']})\n{'=' * 70}")
+    model_name = config.hyperparams.models.llm
+    print(f"\n{'=' * 70}\n  MODE: {label}  (model: {model_name})\n{'=' * 70}")
 
     total = hits = hard_total = hard_hits = 0
     misses: list[str] = []
+
+    template = _CANONICAL_PROMPT if guided else _MINIMAL_PROMPT
 
     for scn in SCENARIOS:
         instruments_block = "\n".join(
             f"- {t} — {name}" for t, name, _ in scn["instruments"]
         )
-        prompt = _BASE.format(
-            guidance=_GUIDANCE if guided else "",
+        prompt = template.format(
             climate=scn["climate"],
             instruments=instruments_block,
         )
