@@ -1,13 +1,17 @@
+"""Pydantic schema for lower-path macroeconomic cluster summaries."""
+
 from pydantic import BaseModel, Field
 
 
 class GlobalTrend(BaseModel):
-    """
-    Pydantic model for parsing the output of the global trend summary from OpenAI.
+    """Structured LLM response summarizing a semantic cluster of macroeconomic
+    topics.
     """
 
-    title: str = Field(description="Short summary of the global macroeconomic trend.")
+    title: str = Field(description="Concise title of the global macroeconomic trend.")
     description: str = Field(
-        description="Detailed explanation of the trend and its global impact."
+        description=(
+            "1-2 sentence explanation of the narrative and its global market impact."
+        )
     )
     direction: str = Field(description="One of: 'up', 'down', 'neutral'.")

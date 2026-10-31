@@ -1,7 +1,4 @@
-# LEAVE THIS AS IT IS IF YOU DONT'T KNOW WHAT IT DOES
-# We don't want to expose internal classes used only
-# for config loading to config's scope
-
+"""Public configuration API exposing the singleton ``config`` and ``REPO_ROOT``."""
 
 from ._config import REPO_ROOT, Config, config
 

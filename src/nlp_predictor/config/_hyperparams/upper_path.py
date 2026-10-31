@@ -1,7 +1,11 @@
+"""Hyperparameters for the upper path (DCIM single-model parameters)."""
+
 from pydantic import BaseModel
 
 
 class DCIMHyperparams(BaseModel):
+    """Parameters for the 5-phase Directional Confirmed Impact Model (DCIM)."""
+
     half_life_hours: float
     beta_penalty: float
     gamma_consensus: float
@@ -11,4 +15,6 @@ class DCIMHyperparams(BaseModel):
 
 
 class UpperPathHyperparams(BaseModel):
+    """Upper-path scoring hyperparameters."""
+
     dcim: DCIMHyperparams

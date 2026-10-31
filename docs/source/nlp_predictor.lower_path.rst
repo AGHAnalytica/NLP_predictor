@@ -28,14 +28,6 @@ nlp\_predictor.lower\_path.macro\_overlay module
    :show-inheritance:
    :undoc-members:
 
-nlp\_predictor.lower\_path.severity\_models module
---------------------------------------------------
-
-.. automodule:: nlp_predictor.lower_path.severity_models
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 Module contents
 ---------------
 

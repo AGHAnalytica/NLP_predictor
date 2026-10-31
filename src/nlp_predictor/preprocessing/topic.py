@@ -1,14 +1,10 @@
+"""Pydantic schemas for structured LLM topic extraction."""
+
 from pydantic import BaseModel, Field
 
 
 class ExtractedTopic(BaseModel):
-    """
-    A single market-relevant topic extracted from an article.
-
-    The topic name should represent a concise event or phenomenon, while the
-    description provides contextual explanation based on the text without
-    naming specific tickers or trading recommendations.
-    """
+    """Single market-relevant event or phenomenon extracted from an article."""
 
     name: str = Field(
         ...,
@@ -28,7 +24,9 @@ class ExtractedTopic(BaseModel):
 
 
 class ExtractedTopics(BaseModel):
-    """Container schema holding a list of topics extracted by the LLM."""
+    """Top-level response container holding all topics extracted from a single
+    article.
+    """
 
     topics: list[ExtractedTopic] = Field(
         default_factory=list,

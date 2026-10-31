@@ -20,6 +20,14 @@ nlp\_predictor.core.logging\_config module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.core.severity\_models module
+-------------------------------------------
+
+.. automodule:: nlp_predictor.core.severity_models
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Module contents
 ---------------
 

@@ -1,39 +1,38 @@
+"""Orchestrator executing registered news scrapers and concatenating results."""
+
 import logging
+from collections.abc import Sequence
 
 import pandas as pd
 
 from nlp_predictor.scraping.apnews_scraper import APNewsScraper
+from nlp_predictor.scraping.base_scraper import BaseScraper
 from nlp_predictor.scraping.bbc_scraper import BBCScraper
 from nlp_predictor.scraping.cnbc_scraper import CNBCScraper
 
 logger = logging.getLogger(__name__)
 
 
-def run_real_scrapers() -> pd.DataFrame:
-    """
-    Executes all scrapers, collects the data, and concatenates it into a single
-    DataFrame. Each scraper is responsible for its own deduplication and media
-    filtering, so the final concatenation simply combines the cleaned results.
-    If no new articles are found, an empty DataFrame is returned.
+def run_real_scrapers(scrapers: Sequence[BaseScraper] | None = None) -> pd.DataFrame:
+    """Run all configured scrapers and concatenate newly discovered items.
 
-    The returned DataFrame has the following columns:
-    - doc_hash: A unique hash of the article content for deduplication.
-    - source: The name of the news source (e.g., "AP News", "BBC", "CNBC").
-    - url: The URL of the article.
-    - date: The publication date of the article, normalized to UTC.
-    - title: The cleaned title of the article.
-    - content: The cleaned main text content of the article.
+    Args:
+        scrapers: Optional custom sequence of :class:`BaseScraper` instances (e.g., web,
+            RSS, or social media scrapers). Defaults to CNBC, AP News, and BBC scrapers.
 
     Returns:
-        pd.DataFrame: A DataFrame containing all new articles from the scrapers,
-        or an empty DataFrame with the correct columns if no new articles are found.
+        Combined DataFrame conforming to :attr:`BaseScraper.ARTICLE_COLUMNS`.
     """
     logger.info("Starting real article extraction (Group 1)...")
 
-    scrapers = [CNBCScraper(), APNewsScraper(), BBCScraper()]
-    collected_dfs = []
+    active_scrapers = (
+        list(scrapers)
+        if scrapers is not None
+        else [CNBCScraper(), APNewsScraper(), BBCScraper()]
+    )
+    collected_dfs: list[pd.DataFrame] = []
 
-    for scraper in scrapers:
+    for scraper in active_scrapers:
         try:
             df = scraper.run()
             if not df.empty:
@@ -42,9 +41,6 @@ def run_real_scrapers() -> pd.DataFrame:
             logger.error(f"Critical error in {scraper.__class__.__name__}: {e}")
 
     if collected_dfs:
-        final_df = pd.concat(collected_dfs, ignore_index=True)
-        return final_df
+        return pd.concat(collected_dfs, ignore_index=True)
 
-    return pd.DataFrame(
-        columns=["doc_hash", "source", "url", "date", "title", "content"]
-    )
+    return pd.DataFrame(columns=BaseScraper.ARTICLE_COLUMNS)

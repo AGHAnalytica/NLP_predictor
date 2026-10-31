@@ -1,32 +1,4 @@
-"""
-Signal log — the append-only EVAL DATASET for the live A/B/n.
-
-Every 15-min tick scores each severity variant and turns it into a per-instrument
-signal (see :class:`tick.TickRunner`). This module persists those signals, one row per
-``(tick, variant, instrument)``, so they can later be joined to each variant's realized
-demo-account PnL. That join is the whole point of the experiment: the log is the X (what
-each model decided, when, with what confidence and macro context) and the broker fills
-are the y (what actually happened). Without a durable, append-only record of every
-decision at the moment it was made, there is nothing to score a model against.
-
-It is deliberately append-only and immutable: a tick's rows are written once and never
-edited, so the dataset is an honest, point-in-time record (no look-ahead, no silent
-rewrites of past decisions). All rows from one tick share a ``tick_id``, so a tick is an
-atomic unit you can group by.
-
-On-disk schema (one row per (tick, variant, instrument), Parquet):
-    - tick_id (str)              : groups every row produced in one 15-min tick
-    - tick_time (str)            : tick timestamp (UTC, 'YYYY-MM-DD HH:MM:SS')
-    - variant (str)              : the severity strategy that produced this signal
-    - instrument (str)           : ticker
-    - signal (str)               : 'UP' | 'DOWN' | 'NEUTRAL' (the decision)
-    - confidence (float)         : [0, 1]
-    - instrument_severity (float): signed severity that set the direction
-    - macro_context (str)        : 'AGREE' | 'CONFLICT' | 'NONE'
-    - n_topics (int)             : number of topics behind the signal
-    - topic_ids (JSON str)       : the topics that drove it (audit trail)
-    - rationale (str)            : human-readable explanation
-"""
+"""Append-only Parquet log storing per-tick variant signals for A/B/n evaluation."""
 
 import json
 import logging
@@ -38,18 +10,25 @@ from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
-# Columns serialized to JSON on disk and parsed back into Python objects in memory.
 _JSON_COLUMNS = ("topic_ids",)
 
 
 class SignalLog:
-    """
-    Parquet-backed, append-only log of per-tick signals — the A/B/n eval dataset.
+    """Append-only Parquet persistence layer for per-(tick, variant, instrument)
+    signals.
 
-    A thin, dependency-free persistence layer: :meth:`append` (write a tick's rows) and
-    :meth:`load` (read the whole history back). It computes nothing — the
-    :class:`tick.TickRunner` owns producing the signals; this only records them — which
-    keeps the eval dataset trivially auditable and the writer easy to unit-test.
+    Schema (:attr:`COLUMNS`):
+        - ``tick_id`` (str): Tick batch UUID.
+        - ``tick_time`` (str): Tick UTC timestamp (``YYYY-MM-DD HH:MM:SS``).
+        - ``variant`` (str): Severity strategy name.
+        - ``instrument`` (str): Ticker symbol.
+        - ``signal`` (str): ``'UP'``, ``'DOWN'``, or ``'NEUTRAL'``.
+        - ``confidence`` (float): Confidence score in $[0, 1]$.
+        - ``instrument_severity`` (float): Signed severity score.
+        - ``macro_context`` (str): ``'AGREE'``, ``'CONFLICT'``, or ``'NONE'``.
+        - ``n_topics`` (int): Supporting topic count.
+        - ``topic_ids`` (list[str] / JSON str on disk): Contributing topic UUIDs.
+        - ``rationale`` (str): Human-readable explanation.
     """
 
     COLUMNS = [
@@ -66,23 +45,12 @@ class SignalLog:
         "rationale",
     ]
 
-    def __init__(self, path: str = str(config.paths.logs.signal_log)):
-        """
-        Args:
-            path (str): Parquet file backing the log. Created lazily on first
-                :meth:`append`; a missing file reads back as an empty log.
-        """
+    def __init__(self, path: str = str(config.paths.logs.signal_log)) -> None:
+        """Initialize the signal log backed by the Parquet file at ``path``."""
         self.path = path
 
-    # ============================== READ ==============================
     def load(self) -> pd.DataFrame:
-        """
-        Read the entire signal history with JSON columns parsed back into objects.
-
-        Returns:
-            pd.DataFrame: All logged rows with :attr:`COLUMNS` (``topic_ids`` as a
-            ``list``). An empty, correctly typed frame if the log does not exist yet.
-        """
+        """Load the full signal history with ``topic_ids`` parsed into Python lists."""
         if not os.path.exists(self.path):
             return pd.DataFrame(columns=self.COLUMNS)
 
@@ -95,24 +63,14 @@ class SignalLog:
                 df[col] = df[col].apply(self._from_json)
         return df
 
-    # ============================== WRITE ==============================
     def append(self, rows: pd.DataFrame) -> int:
-        """
-        Append one tick's signals to the log (append-only — never edits past rows).
-
-        Coerces the incoming frame to the fixed :attr:`COLUMNS` schema (dropping extra
-        columns such as ``signal_id``/``current_time`` and filling any missing one), so
-        callers can hand it raw :meth:`SignalGenerator.generate` output augmented with
-        ``tick_id``/``tick_time``/``variant`` without bookkeeping here.
+        """Append new signal rows to the Parquet log.
 
         Args:
-            rows (pd.DataFrame): Signal rows to record. Should carry the identity
-                columns ``tick_id``, ``tick_time`` and ``variant`` plus the
-                per-instrument signal fields; anything else in :attr:`COLUMNS` is
-                filled with a null/default.
+            rows: Signal DataFrame containing :attr:`COLUMNS`.
 
         Returns:
-            int: Number of rows appended (0 for an empty/None input).
+            Number of rows appended.
         """
         if rows is None or rows.empty:
             return 0
@@ -122,13 +80,16 @@ class SignalLog:
             incoming[col] = incoming[col].apply(self._to_json)
 
         current = self._load_raw()
-        combined = pd.concat([current, incoming], ignore_index=True)
+        combined = (
+            incoming
+            if current.empty
+            else pd.concat([current, incoming], ignore_index=True)
+        )
         self._write_raw(combined)
         return len(incoming)
 
-    # ============================== INTERNALS ==============================
     def _load_raw(self) -> pd.DataFrame:
-        """Read the log without parsing JSON columns (write-path helper)."""
+        """Read the Parquet file without parsing JSON string columns."""
         if not os.path.exists(self.path):
             return pd.DataFrame(columns=self.COLUMNS)
         df = pd.read_parquet(self.path)
@@ -137,13 +98,15 @@ class SignalLog:
         return df
 
     def _write_raw(self, df: pd.DataFrame) -> None:
-        """Persist the log, creating the parent directory on first write."""
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        """Write raw DataFrame to Parquet, creating parent directories if needed."""
+        parent = os.path.dirname(self.path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         df.reindex(columns=self.COLUMNS).to_parquet(self.path, index=False)
 
     @staticmethod
     def _to_json(value: object) -> str:
-        """Serialize a list cell to JSON (idempotent on strings)."""
+        """Serialize a list-like ``topic_ids`` cell to a JSON string."""
         if isinstance(value, str):
             return value
         if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -154,7 +117,7 @@ class SignalLog:
 
     @staticmethod
     def _from_json(value: object) -> object:
-        """Parse a JSON string cell into a Python object; pass non-strings through."""
+        """Deserialize a JSON string cell into a Python list."""
         if isinstance(value, str):
             try:
                 return json.loads(value)
@@ -167,7 +130,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
-    )  # noqa: E501
+    )
     logger.info("====== SignalLog Module Test ======")
     log = SignalLog()
     logger.info(f"Log path: {log.path}")

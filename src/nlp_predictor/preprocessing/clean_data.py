@@ -1,3 +1,5 @@
+"""Text cleaning, timestamp normalization, and document hashing utilities."""
+
 import hashlib
 import logging
 import re
@@ -7,20 +9,21 @@ from datetime import UTC, datetime
 import dateparser
 import trafilatura
 
+logger = logging.getLogger(__name__)
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_NON_ALNUM_RE = re.compile(r"\W+")
+MIN_ARTICLE_LENGTH = 200
+
 
 def normalize_date_to_utc(raw_date_str: str) -> datetime | None:
-    """
-    Normalize a raw date string into a timezone-aware UTC datetime object.
-    Articles may have publication dates in various formats and timezones. This function
-    uses dateparser to flexibly parse the date string and then converts it to UTC.
-    If the input is empty or parsing fails, it returns None.
+    """Parse an arbitrary date string into a timezone-aware UTC datetime.
 
     Args:
-        raw_date_str (str): The raw date string extracted from the article metadata.
+        raw_date_str: Raw publication timestamp string from article metadata.
 
     Returns:
-        A timezone-aware datetime object set to UTC, or None if the parsing
-        fails or the input is empty.
+        UTC-aware ``datetime`` instance, or ``None`` if empty or unparseable.
     """
     if not raw_date_str:
         return None
@@ -28,24 +31,34 @@ def normalize_date_to_utc(raw_date_str: str) -> datetime | None:
     parsed_date = dateparser.parse(
         raw_date_str, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
     )
-
     if parsed_date:
         return parsed_date.astimezone(UTC)
-
     return None
 
 
-def clean_html_content(raw_html: str) -> str:
-    """
-    Extracts the main article text from raw HTML using trafilatura,
-    normalizes it, and cleans it. Returns the cleaned text or an empty
-    string if extraction fails.
+def normalize_plain_text(raw_text: str) -> str:
+    """Normalize Unicode (NFKC) and collapse runs of whitespace in plain text.
 
     Args:
-        raw_html (str): The raw HTML content of the article.
+        raw_text: Unstructured plain text.
 
     Returns:
-        str: The cleaned article text, or an empty string if extraction fails.
+        Normalized single-spaced string, or ``""`` if empty.
+    """
+    if not raw_text or not isinstance(raw_text, str):
+        return ""
+    normalized = unicodedata.normalize("NFKC", raw_text)
+    return _WHITESPACE_RE.sub(" ", normalized).strip()
+
+
+def clean_html_content(raw_html: str) -> str:
+    """Extract main article body from raw HTML via Trafilatura and normalize whitespace.
+
+    Args:
+        raw_html: Raw HTML markup of the article page.
+
+    Returns:
+        Cleaned plain-text body, or ``""`` if extraction fails.
     """
     if not raw_html or not isinstance(raw_html, str):
         return ""
@@ -54,54 +67,42 @@ def clean_html_content(raw_html: str) -> str:
             raw_html, include_comments=False, include_tables=False
         )
     except Exception as e:
-        logging.warning(f"Trafilatura error during extraaction: {e}")
+        logger.warning(f"Trafilatura error during extraction: {e}")
         return ""
     if not text:
         return ""
-
-    text = unicodedata.normalize("NFKC", text)
-
-    clean_text = re.sub(r"\s+", " ", text).strip()
-
-    return clean_text
+    return normalize_plain_text(text)
 
 
-def is_valid_article(clean_text: str) -> bool:
-    """
-    Checks if the article has at least 200 characters of cleaned content.
-    Returns True if valid, False otherwise. Articles that are too short are likely not
-    useful for analysis.
+def is_valid_article(clean_text: str, min_length: int = MIN_ARTICLE_LENGTH) -> bool:
+    """Return whether cleaned text meets the minimum character length threshold.
 
     Args:
-        clean_text (str): The cleaned article text to validate.
+        clean_text: Normalized article text.
+        min_length: Minimum required character count (defaults to 200).
 
     Returns:
-        bool: True if the article is valid (at least 200 characters), False otherwise.
+        ``True`` if ``len(clean_text) >= min_length``, ``False`` otherwise.
     """
     if not clean_text:
         return False
-
-    return len(clean_text) >= 200
+    return len(clean_text) >= min_length
 
 
 def generate_doc_hash(text: str) -> str:
-    """
-    Generates a SHA-256 hash for the given text to be used for deduplication.
-    Articles with identical content will produce the same hash, allowing us to identify
-    duplicates even if the URL or title changes. The text is standardized
-    by lowercasing and removing non-alphanumeric characters before hashing to improve
-    the chances of catching duplicates that have minor formatting differences.
+    """Compute a deterministic SHA-256 hex digest over alphanumeric-normalized text.
 
     Args:
-        text: The cleaned article text.
+        text: Cleaned article or post text.
 
     Returns:
-        A hexadecimal string representation of the hash.
+        64-character hex SHA-256 digest, or ``""`` if input contains no alphanumeric
+        chars.
     """
     if not text:
         return ""
 
-    standardized_text = re.sub(r"\W+", "", text.lower())
+    standardized_text = _NON_ALNUM_RE.sub("", text.lower())
     if not standardized_text:
         return ""
 

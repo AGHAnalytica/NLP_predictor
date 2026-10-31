@@ -1,7 +1,13 @@
+"""OpenAI model identifiers, concurrency limits, and retry policy parameters."""
+
 from pydantic import BaseModel
 
 
 class ModelsHyperparams(BaseModel):
+    """LLM and embedding model names alongside concurrency and exponential-backoff
+    bounds.
+    """
+
     llm: str
     embedding: str
     severity_model: str

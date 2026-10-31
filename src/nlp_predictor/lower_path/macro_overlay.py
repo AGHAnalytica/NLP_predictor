@@ -1,45 +1,17 @@
-"""
-Macro overlay — the bridge between the lower path's broad CLIMATE and each instrument.
-
-The lower path (Group 4) answers "w jakim otoczeniu" — is the world risk-on or fleeing
-to safety. The job here is to turn that one climate into a per-instrument effect so the
-final signal can be modulated with context: a call that rides the climate is more
-trustworthy, one that fights it is less (a good long still falls in a panic).
-
-Why an LLM here, not a hand-coded rule: the same climate pushes different instruments in
-*opposite* directions (risk-on lifts equities but sinks gold), and the sign is
-regime-dependent (gold can fall in a dash-for-cash). A static ``risk_class`` sign-flip
-is brittle and, if wrong, inverts the signal in exactly the tail cases that matter. One
-structured LLM call reads the narrative and returns ``tailwind | headwind | neutral`` +
-strength per instrument — the same judgement the upper path already makes per topic,
-applied one level up. A probe (scripts/probe_macro_mapping.py) confirmed the configured
-model handles the canonical mappings, including the haven inversions.
-
-Two deliberate properties keep this safe and clean:
-
-- It is computed ONCE per tick, shared across every A/B severity variant — so it is a
-  constant across the comparison and cannot confound which severity model wins.
-- It only ever modulates CONFIDENCE downstream, never direction (direction stays the
-  upper-path severity sign), so a bad tag mis-sizes a bet but never flips it. We bias
-  the model toward ``neutral`` so its errors fail toward "no opinion", the safe default.
-
-Output (:class:`MacroOverlay`):
-
-- effects (dict)     : ``{instrument: {'effect', 'strength', 'rationale'}}``
-- conviction (float) : [0, 1] overall climate strength (the quantitative macro
-  severity) — scales how hard the overlay moves confidence.
-- climate_summary    : the text fed to the model, for audit/logging.
+"""Macroeconomic climate overlay mapping lower-path narratives to per-instrument
+tailwind/headwind effects.
 """
 
 import logging
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 from pydantic import BaseModel, Field
 
 from nlp_predictor.config import config
-from nlp_predictor.core.base_analyzer import BaseAnalyzer
+from nlp_predictor.core.base_analyzer import BaseAnalyzer, load_instrument_universe
 from nlp_predictor.prompts import PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -48,7 +20,7 @@ _VALID_EFFECTS = ("tailwind", "headwind", "neutral")
 
 
 class _InstrumentEffect(BaseModel):
-    """One instrument's response to the climate (strict LLM output)."""
+    """Single instrument's reaction to the macroeconomic climate."""
 
     ticker: str = Field(description="Exact ticker from the provided list.")
     effect: str = Field(description="One of: 'tailwind', 'headwind', 'neutral'.")
@@ -57,65 +29,63 @@ class _InstrumentEffect(BaseModel):
 
 
 class _MacroMapping(BaseModel):
-    """Container for the per-instrument effects."""
+    """Structured LLM output containing climate effects for all instruments."""
 
     effects: list[_InstrumentEffect] = Field(description="One entry per instrument.")
 
 
 @dataclass
 class MacroOverlay:
-    """The macro climate resolved to per-instrument effects + an overall conviction."""
+    """Resolved macro climate containing per-instrument effects and overall climate
+    conviction.
+    """
 
-    effects: dict[str, dict] = field(default_factory=dict)
+    effects: dict[str, dict[str, Any]] = field(default_factory=dict)
     conviction: float = 0.0
     climate_summary: str = ""
 
-    def for_instrument(self, instrument: str) -> dict:
-        """Effect for one instrument, defaulting to neutral/no-effect if unmapped."""
+    def for_instrument(self, instrument: str) -> dict[str, Any]:
+        """Return ``{'effect', 'strength', 'rationale'}`` for ``instrument`` (defaults
+        to
+        neutral).
+        """
         return self.effects.get(
             instrument, {"effect": "neutral", "strength": 0.0, "rationale": ""}
         )
 
 
 class MacroOverlayAnalyzer(BaseAnalyzer):
-    """
-    Builds the :class:`MacroOverlay` from the lower-path macro trends in one LLM call.
-
-    Pure orchestration around a single structured, validated call: it does not touch
-    the upper path or compute any severity itself. ``process_data`` exists only for the
-    BaseAnalyzer interface; the real entry point is :meth:`build`.
+    """Resolves lower-path macro clusters into a shared per-instrument ``MacroOverlay``
+    via
+    one LLM call.
     """
 
     def __init__(self, instruments_path: str = str(config.paths.input.instruments)):
-        super().__init__()
-        self.instruments_df = pd.read_csv(instruments_path)
-        self.valid_tickers = set(self.instruments_df["ticker"].dropna().astype(str))
-        self.available_instruments = dict(
-            zip(
-                self.instruments_df["ticker"].astype(str),
-                self.instruments_df["full_name"].astype(str),
-                strict=False,
-            )
-        )
-
-    def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
-        """Unused BaseAnalyzer hook; the overlay is produced by :meth:`build`."""
-        raise NotImplementedError("Use build(global_trends_df) instead.")
-
-    def build(self, global_trends_df: pd.DataFrame | None) -> MacroOverlay:
-        """
-        Resolve the macro climate to a per-instrument overlay.
+        """Initialize the analyzer and load the tradable instrument universe from CSV.
 
         Args:
-            global_trends_df (pd.DataFrame | None): Lower-path output, with at least
-                'title', 'direction' and 'severity' columns. Empty/None -> an empty
-                overlay (no macro modulation), which downstream treats as "no climate".
+            instruments_path: Path to the instruments CSV file.
+        """
+        super().__init__()
+        (
+            self.instruments_df,
+            self.valid_tickers,
+            self.available_instruments,
+        ) = load_instrument_universe(instruments_path)
+
+    def build(self, global_trends_df: pd.DataFrame | None) -> MacroOverlay:
+        """Build a ``MacroOverlay`` from the lower-path ``global_trends_df``.
+
+        Args:
+            global_trends_df: Lower-path clusters with ``title``, ``direction``, and
+                ``severity`` columns.
 
         Returns:
-            MacroOverlay: effects + conviction + the climate text used.
+            Populated ``MacroOverlay`` (or an empty overlay with 0.0 conviction if input
+            is empty).
         """
         if global_trends_df is None or global_trends_df.empty:
-            logger.info("No macro trends; macro overlay is empty (no climate).")
+            logger.info("No macro trends; macro overlay is empty.")
             return MacroOverlay()
 
         climate = self._climate_summary(global_trends_df)
@@ -130,30 +100,20 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         )
 
     def _climate_summary(self, global_trends_df: pd.DataFrame) -> str:
-        """Render the macro clusters into the climate text the model reads."""
-        lines = []
-        for _, row in global_trends_df.iterrows():
+        """Format macro clusters into a bulleted text summary for the LLM prompt."""
+        lines: list[str] = []
+        for row in global_trends_df.to_dict(orient="records"):
             title = str(row.get("title", "macro trend"))
             direction = str(row.get("direction", "neutral")).lower()
-            # Human/LLM-facing size is the raw topic count; the weighted 'severity' is
-            # for the conviction math, not for display (a "5.3 topics" reads wrong).
             count = row.get("n_topics", row.get("severity", 0))
             description = str(row.get("description", "")).strip()
-            lines.append(
-                f"- {title} (direction: {direction}, {count} topics)"
-                + (f": {description}" if description else "")
-            )
+            suffix = f": {description}" if description else ""
+            lines.append(f"- {title} (direction: {direction}, {count} topics){suffix}")
         return "\n".join(lines)
 
     def _conviction(self, global_trends_df: pd.DataFrame) -> float:
-        """
-        Overall climate strength in [0, 1] — the quantitative macro severity.
-
-        v1 proxy: tanh of the total clustered topic volume (sum of per-cluster
-        severities). Bigger, broader clusters -> a more pervasive, more trustworthy
-        climate. This is the simple, defensible starting point; a richer macro-severity
-        model (source diversity, embedding cohesion, recency) can replace it later
-        without touching the fusion, since only this scalar is consumed downstream.
+        """Compute aggregate climate conviction in ``[0.0, 1.0]`` as $\\tanh(\\sum
+        \\text{severity} / \\text{scale})$.
         """
         total = float(
             pd.to_numeric(global_trends_df["severity"], errors="coerce")
@@ -163,18 +123,20 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         scale = float(config.hyperparams.signal.macro_conviction_scale)
         return float(math.tanh(total / scale)) if scale > 0 else 0.0
 
-    def _map_climate(self, climate: str) -> dict[str, dict]:
-        """One structured LLM call: climate -> per-instrument effect, validated."""
+    def _map_climate(self, climate: str) -> dict[str, dict[str, Any]]:
+        """Query the LLM once to classify each instrument's climate effect and validate
+        tickers.
+        """
         prompt = PROMPTS["macro_overlay"].format(
             climate=climate, instruments=self._instrument_block()
         )
         try:
             parsed = self._call_openai_api_with_retry(prompt, _MacroMapping)
-        except Exception as e:  # noqa: BLE001 - a failed overlay just means no climate
+        except Exception as e:
             logger.error(f"Macro overlay mapping failed: {e}")
             return {}
 
-        effects: dict[str, dict] = {}
+        effects: dict[str, dict[str, Any]] = {}
         for item in parsed.effects:  # type: ignore[attr-defined]
             ticker = str(item.ticker).strip()
             effect = str(item.effect).strip().lower()
@@ -187,23 +149,8 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
         return effects
 
     def _instrument_block(self) -> str:
-        """The 'TICKER — Full Name' lines the model classifies."""
+        """Format available instruments as ``- TICKER — Full Name`` lines."""
         return "\n".join(
             f"- {ticker} — {name}"
             for ticker, name in self.available_instruments.items()
-        )
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    logger.info("====== MacroOverlayAnalyzer Module Test ======")
-    try:
-        gt = pd.read_csv(config.paths.output.global_trends_csv)
-    except (FileNotFoundError, pd.errors.EmptyDataError):
-        gt = pd.DataFrame()
-    overlay = MacroOverlayAnalyzer().build(gt)
-    logger.info(f"Conviction: {overlay.conviction:.2f}")
-    for inst, eff in overlay.effects.items():
-        logger.info(
-            f"  {inst:8s} {eff['effect']:9s} {eff['strength']:.2f}  {eff['rationale']}"
         )

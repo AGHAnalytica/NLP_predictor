@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from nlp_predictor.lower_path.severity_models import (
+from nlp_predictor.core.severity_models import (
     REQUIRED_COLUMNS,
     SEVERITY_REGISTRY,
     severity_abnormal_volume,

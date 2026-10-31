@@ -1,16 +1,23 @@
+"""Base infrastructure for LLM-backed pipeline analyzers.
+
+Provides thread-pooled OpenAI structured-output calls with exponential backoff,
+instrument universe loading, and Hive-partitioned Parquet persistence via PyArrow.
+"""
+
 import logging
 import os
 import time
-from abc import ABC, abstractmethod
+import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TypeVar
 
 import pandas as pd
 from openai import OpenAI, RateLimitError
 from pydantic import BaseModel
 from tenacity import (
-    retry,
+    Retrying,
     retry_if_exception,
     stop_after_attempt,
     wait_exponential,
@@ -26,71 +33,80 @@ R = TypeVar("R")
 
 
 def _is_transient_rate_limit(exception: BaseException) -> bool:
+    """Return True for transient TPM/RPM rate limits and False for permanent quota
+    exhaustion.
     """
-    Check if a RateLimitError is a temporary rate limit (TPM/RPM) that can be retried.
-    Do NOT retry permanent quota/credit exhaustion errors (e.g.
-    credit_balance_exhausted).
-    """
-    if isinstance(exception, RateLimitError):
-        code = getattr(exception, "code", None)
-        err_type = getattr(exception, "type", None)
-        body = getattr(exception, "body", None)
-        if isinstance(body, dict) and "error" in body:
-            err = body["error"]
-            if (
-                err.get("code") == "credit_balance_exhausted"
-                or err.get("type") == "insufficient_quota"
-            ):
-                logger.critical(
-                    "OpenAI billing error: No credits remaining on account "
-                    "(credit_balance_exhausted). Add credits at "
-                    "https://platform.openai.com/settings/organization/billing/."
-                )
-                return False
-        if (
-            code in ("credit_balance_exhausted", "insufficient_quota")
-            or err_type == "insufficient_quota"
-        ):
-            logger.critical(
-                "OpenAI billing error: No credits remaining on account "
-                "(credit_balance_exhausted). Add credits at "
-                "https://platform.openai.com/settings/organization/billing/."
+    if not isinstance(exception, RateLimitError):
+        return False
+
+    code = getattr(exception, "code", None)
+    err_type = getattr(exception, "type", None)
+    body = getattr(exception, "body", None)
+
+    is_exhausted = (
+        code in ("credit_balance_exhausted", "insufficient_quota")
+        or err_type == "insufficient_quota"
+        or (
+            isinstance(body, dict)
+            and isinstance(body.get("error"), dict)
+            and (
+                body["error"].get("code") == "credit_balance_exhausted"
+                or body["error"].get("type") == "insufficient_quota"
             )
-            return False
-        return True
-    return False
+        )
+    )
+    if is_exhausted:
+        logger.critical(
+            "OpenAI billing error: insufficient quota / credit_balance_exhausted. "
+            "Add credits at https://platform.openai.com/settings/organization/billing/."
+        )
+        return False
+    return True
 
 
-class BaseAnalyzer(ABC):
+def load_instrument_universe(
+    instruments_path: str | Path,
+) -> tuple[pd.DataFrame, set[str], dict[str, str]]:
+    """Load the tradable instrument table and build lookup structures for validation and
+    prompts.
+
+    Args:
+        instruments_path: Path to the CSV file with ``ticker`` and ``full_name``
+            columns.
+
+    Returns:
+        Tuple of ``(instruments_df, valid_tickers_set, ticker_to_full_name_dict)``.
     """
-    Abstract base class for analyzing topic data and generating trends reports.
-    Provides common functionality for calling the OpenAI API with structured
-    output and saving results to a partitioned Parquet dataset. Subclasses
-    must implement the process_data method to define specific analysis logic.
-    Key features:
-    - OpenAI API integration with structured output parsing using Pydantic models.
-    - Exponential backoff retry mechanism to handle API rate limits gracefully.
-    - Robust Parquet saving functionality that appends to existing datasets without
-    overwriting, using the fastparquet engine for efficient partitioning and
-    writing.
+    df = pd.read_csv(instruments_path)
+    tickers = df["ticker"].dropna().astype(str).str.strip()
+    names = df["full_name"].fillna("").astype(str).str.strip()
+    valid_tickers = set(tickers)
+    available_instruments = dict(zip(tickers, names, strict=False))
+    return df, valid_tickers, available_instruments
 
-    Note: The class assumes that the OPENAI_API_KEY environment variable is set for
-    authentication with the OpenAI API. It also expects the input DataFrame to have
-    specific columns (e.g., 'embedding') for processing, which should be handled by the
-    subclasses.
+
+class BaseAnalyzer:
+    """Base class providing OpenAI structured-output retries, paced thread parallelism,
+    and
+    Parquet export.
     """
-
-    # Max concurrent in-flight OpenAI requests for independent per-item calls.
-    # These calls are I/O-bound, so threads (which release the GIL during network
-    # I/O) give near-linear speedup; the sync OpenAI client is thread-safe. Higher
-    # values are faster but more likely to hit rate limits (handled by the retry).
-    MAX_WORKERS = 2
 
     def __init__(
         self,
         max_workers: int | None = None,
         request_delay: float | None = None,
     ):
+        """Initialize the OpenAI client and concurrency settings from config or
+        overrides.
+
+        Args:
+            max_workers: Maximum concurrent LLM threads (defaults to
+                ``config.hyperparams.models.max_workers``).
+            request_delay: Pacing delay in seconds between thread submissions.
+
+        Raises:
+            ValueError: If ``OPENAI_API_KEY`` is not set in the environment.
+        """
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError(
@@ -108,57 +124,55 @@ class BaseAnalyzer(ABC):
             else float(config.hyperparams.models.request_delay)
         )
 
-    @retry(
-        stop=stop_after_attempt(12),
-        wait=wait_exponential(multiplier=1.5, min=4, max=60) + wait_random(0.5, 3.0),
-        retry=retry_if_exception(_is_transient_rate_limit),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Rate limit hit. Sleeping for {retry_state.upcoming_sleep:.1f}s... "
-            f"(Attempt {retry_state.attempt_number})"
-        ),
-    )
     def _call_openai_api_with_retry(
         self, prompt: str, schema: type[BaseModel]
     ) -> BaseModel:
-        """
-        Calls the OpenAI API with structured output and returns a validated
-        Pydantic object. Uses exponential backoff with random jitter to handle
-        rate limits and avoid synchronized retries.
+        """Call OpenAI structured outputs with exponential backoff on transient rate
+        limits.
 
         Args:
-            prompt (str): The prompt to send to the LLM.
-            schema (type[BaseModel]): The Pydantic model class to validate the output.
+            prompt: User prompt sent to the configured LLM.
+            schema: Pydantic model class enforcing the response JSON schema.
 
         Returns:
-            BaseModel: An instance of the provided Pydantic model containing the parsed
-            response.
-
+            Parsed and validated instance of ``schema``.
         """
-        response = self.client.beta.chat.completions.parse(
-            model=str(config.hyperparams.models.llm),
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-            response_format=schema,
+        models_cfg = config.hyperparams.models
+        retrying = Retrying(
+            stop=stop_after_attempt(int(models_cfg.retry_attempts)),
+            wait=wait_exponential(
+                multiplier=1.5,
+                min=float(models_cfg.retry_min_wait),
+                max=float(models_cfg.retry_max_wait),
+            )
+            + wait_random(0.5, 3.0),
+            retry=retry_if_exception(_is_transient_rate_limit),
+            before_sleep=lambda retry_state: logger.warning(
+                f"Rate limit hit. Sleeping for {retry_state.upcoming_sleep:.1f}s "
+                f"(Attempt {retry_state.attempt_number})..."
+            ),
+            reraise=True,
         )
-        return response.choices[0].message.parsed  # type: ignore
+        for attempt in retrying:
+            with attempt:
+                response = self.client.beta.chat.completions.parse(
+                    model=str(models_cfg.llm),
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format=schema,
+                )
+                return response.choices[0].message.parsed  # type: ignore[return-value]
+        raise RuntimeError("Exhausted OpenAI retry loop.")
 
     def _parallel_map(self, fn: Callable[[T], R], items: Sequence[T]) -> list[R]:
-        """
-        Run ``fn`` over ``items`` concurrently, returning results in input order.
-
-        Used to fan out independent LLM calls (e.g. one per article, topic or
-        cluster) instead of issuing them serially. Concurrency is capped at
-        :attr:`max_workers`; the per-call rate-limit retry still applies inside
-        ``fn``. If :attr:`request_delay` > 0, task submissions are paced to
-        prevent bursting.
+        """Execute ``fn`` across ``items`` using a paced thread pool while preserving
+        input order.
 
         Args:
-            fn (Callable): Function applied to each item (typically wraps one API call).
-            items (Sequence): The items to process.
+            fn: Callable applied to each element.
+            items: Sequence of inputs.
 
         Returns:
-            list: Results aligned 1:1 with ``items``.
+            List of results in the exact order of ``items``.
         """
         if not items:
             return []
@@ -170,10 +184,10 @@ class BaseAnalyzer(ABC):
         def paced_fn(index_and_item: tuple[int, T]) -> tuple[int, R]:
             idx, item = index_and_item
             if self.request_delay > 0:
-                if idx < workers:
-                    time.sleep(idx * self.request_delay)
-                else:
-                    time.sleep(self.request_delay)
+                delay = (
+                    idx * self.request_delay if idx < workers else self.request_delay
+                )
+                time.sleep(delay)
             return idx, fn(item)
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -181,82 +195,43 @@ class BaseAnalyzer(ABC):
             return [r for _, r in results]
 
     @staticmethod
-    def save_trends(result_df: pd.DataFrame, output_path: str):
-        """
-        Saves the resulting DataFrame to a partitioned Parquet dataset.
-        - Partitions by date (extracted from 'current_time' or 'date' column).
-        - Uses fastparquet engine for efficient writing and native
-        Hive-style partitioning.
-        - Appends new data without overwriting existing partitions, creating new
-        parquet files with unique names.
-        - Handles empty DataFrames gracefully by skipping the save operation.
-        - Ensures the target directory exists before saving.
-        - Logs key steps and any issues encountered during the save process.
-        Note: The 'current_time' column is expected to be in a datetime format.
-        If it's not present, it falls back to using the 'date' column for partitioning.
+    def save_trends(result_df: pd.DataFrame, output_path: str | Path) -> bool:
+        """Append ``result_df`` to a date-partitioned Parquet dataset using PyArrow.
+
+        Partitions by ``date_partition`` derived from ``current_time`` (or ``date``).
+        Writes unique batch files inside each Hive partition directory without
+        overwriting history.
 
         Args:
-            result_df (pd.DataFrame): The DataFrame containing the trends to save.
-            output_path (str): The path to the directory where the Parquet files will be
-            saved.
+            result_df: DataFrame of trends to persist.
+            output_path: Root directory for the partitioned Parquet dataset.
 
         Returns:
-            bool: The return value. True for success, False otherwise.
+            True if written successfully, False if ``result_df`` is empty or an error
+            occurred.
         """
         if result_df.empty:
             logger.info("DataFrame is empty. Skipping Parquet save operation.")
             return False
 
         try:
-            # 1. Ensure the target base directory exists
-            os.makedirs(output_path, exist_ok=True)
-
-            # 2. Identify the time column
-            # ('current_time' based on latest implementation)
+            out_dir = Path(output_path)
             time_col = "current_time" if "current_time" in result_df.columns else "date"
-
-            # 3. Create a new column strictly for partitioning
-            # (extracting just the date) Converting to string
-            # ensures clean folder names in the OS
-            result_df["date_partition"] = pd.to_datetime(
-                result_df[time_col]
+            df_to_save = result_df.copy()
+            df_to_save["date_partition"] = pd.to_datetime(
+                df_to_save[time_col]
             ).dt.date.astype(str)
 
-            # 4. Check SPECIFICALLY for the fastparquet metadata file
-            # to enable appending
-            metadata_path = os.path.join(output_path, "_metadata")
-            dataset_exists = os.path.isfile(metadata_path)
+            for date_part, group in df_to_save.groupby("date_partition", sort=False):
+                part_dir = out_dir / f"date_partition={date_part}"
+                part_dir.mkdir(parents=True, exist_ok=True)
+                file_path = part_dir / f"part_{uuid.uuid4().hex[:12]}.parquet"
+                group.drop(columns=["date_partition"]).to_parquet(
+                    file_path, engine="pyarrow", index=False
+                )
 
-            # 5. Write to Parquet using the fastparquet engine.
-            # fastparquet handles Hive partitioning natively.
-            # When called multiple times, it generates new, unique parquet files (UUIDs)
-            # inside the partition folders, effectively appending data without
-            # overwriting historical batches.
-            result_df.to_parquet(
-                output_path,
-                engine="fastparquet",
-                partition_cols=["date_partition"],
-                index=False,
-                append=dataset_exists,
-            )
-
-            mode_str = "Appended to" if dataset_exists else "Created new"
-            logger.info(f"{mode_str} partitioned Parquet dataset at {output_path}")
+            logger.info(f"Saved partitioned Parquet dataset to {out_dir}")
             return True
         except Exception as e:
             logger.error(f"Failed to save results to Parquet: {e}")
             return False
-
-    @abstractmethod
-    def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Abstract method to process the input DataFrame and generate a trends
-        report. Must be implemented by subclasses.
-
-        Args:
-            topics_df (pd.DataFrame): The input DataFrame containing topic data.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the generated trends report.
-        """
-        pass

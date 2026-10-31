@@ -1,120 +1,30 @@
-import asyncio
-import logging
-import xml.etree.ElementTree as ET
+"""BBC News RSS scraper for Business and Science/Environment feeds."""
 
 import pandas as pd
 
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
-logger = logging.getLogger(__name__)
-
 
 class BBCScraper(BaseScraper):
-    """
-    Scraper for BBC News using official RSS feeds.
-    Extracts metadata from RSS and fetches full article content.
-    Targets Business and Science/Environment sections.
-    """
+    """Scraper for BBC News RSS feeds, excluding audio/video endpoints."""
 
-    def __init__(self, history_file: str | None = None):
+    def __init__(self, history_file: str | None = None) -> None:
+        """Initialize BBC RSS feed URLs and base scraper state."""
         super().__init__(history_file=history_file)
-
         self.rss_feeds = [
             "http://feeds.bbci.co.uk/news/business/rss.xml",
             "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
         ]
 
+    @staticmethod
+    def _is_media_url(url: str) -> bool:
+        """Return ``True`` if the BBC URL points to audio/video content."""
+        return "/av/" in url or "bbc.co.uk/sounds" in url
+
     def run(self) -> pd.DataFrame:
-        """
-        Main loop for BBC.
-        Returns a Pandas DataFrame with new articles cleaned up. If no new articles are
-        found, returns an empty DataFrame with the correct columns.
-        Articles are filtered for duplicates and media content before processing.
-        Fetches full HTML for each article to extract content and metadata, then passes
-        through the cleaner pipeline defined in process_article().
-
-        Returns:
-            pd.DataFrame: A DataFrame containing new articles with columns:
-            doc_hash, source, url, date, title, content. If no new articles are
-            found, returns an empty DataFrame with the correct columns.
-        """
-        articles_data = []
-
-        pending_articles = {}
-
-        for rss_url in self.rss_feeds:
-            logger.info(f"Fetching RSS feed: {rss_url}")
-            rss_xml = self.fetch_html(rss_url)
-
-            if not rss_xml:
-                continue
-
-            try:
-                root = ET.fromstring(rss_xml)
-
-                for item in root.findall(".//item"):
-                    raw_title = item.findtext("title")
-                    article_url = item.findtext("link")
-                    raw_date = item.findtext("pubDate")
-
-                    if not raw_title or not article_url or not raw_date:
-                        continue
-
-                    raw_title = raw_title.strip()
-                    article_url = article_url.strip()
-                    raw_date = raw_date.strip()
-
-                    if "/av/" in article_url or "bbc.co.uk/sounds" in article_url:
-                        logger.debug(f"Skipped media content: {article_url}")
-                        continue
-
-                    if self.is_duplicate(doc_hash="", url=article_url):
-                        logger.debug(
-                            f"Article already exists in DB (URL): {article_url}"
-                        )
-                        continue
-
-                    pending_articles[article_url] = {
-                        "title": raw_title,
-                        "date": raw_date,
-                    }
-            except ET.ParseError as e:
-                logger.error(f"XML parsing error for {rss_url}: {e}")
-
-        expected_columns = ["doc_hash", "source", "url", "date", "title", "content"]
-
-        if not pending_articles:
-            logger.info("No new articles to fetch.")
-            return pd.DataFrame(columns=expected_columns)
-
-        urls_to_fetch = list(pending_articles.keys())
-        logger.info(f"Starting concurrent fetching for {len(urls_to_fetch)} URLs...")
-        html_results = asyncio.run(
-            self.fetch_urls_concurrently(urls_to_fetch, max_concurrent=15)
+        """Fetch BBC RSS feeds and scrape new articles concurrently."""
+        return self._run_rss_pipeline(
+            rss_feeds=self.rss_feeds,
+            source_name="BBC",
+            skip_url=self._is_media_url,
         )
-
-        for article_url, article_html in html_results:
-            if not article_html:
-                continue
-
-            meta = pending_articles[article_url]
-
-            processed = self.process_article(
-                source="BBC",
-                url=article_url,
-                raw_title=meta["title"],
-                raw_date=meta["date"],
-                raw_html=article_html,
-            )
-
-            if processed:
-                articles_data.append(processed)
-
-        self.save_history()
-        logger.info(f"BBCScraper finished. Fetched {len(articles_data)} new articles.")
-
-        if not articles_data:
-            return pd.DataFrame(columns=expected_columns)
-
-        df = pd.DataFrame(articles_data)
-        return df[expected_columns]

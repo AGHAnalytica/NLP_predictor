@@ -1,17 +1,19 @@
+"""Pydantic schemas for A/B/n severity model variants."""
+
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class BaseParams(BaseModel):
-    """Shared parameters across all models."""
+    """Core time-decay and tanh-scaling parameters shared by all severity models."""
 
     half_life_hours: float
     kappa_scale: float
 
 
 class DCIMParams(BaseParams):
-    """Specific parameters only allowed in DCIM."""
+    """Extended parameters specific to the 5-phase DCIM severity model."""
 
     beta_penalty: float
     gamma_consensus: float
@@ -20,18 +22,24 @@ class DCIMParams(BaseParams):
 
 
 class BaselineVariant(BaseModel):
+    """Configuration for a baseline sentiment-sum variant."""
+
     model: Literal["baseline"]
     window_hours: float
     params: BaseParams
 
 
 class AbnormalVolumeVariant(BaseModel):
+    """Configuration for a volume-anomaly variant."""
+
     model: Literal["abnormal_volume"]
     window_hours: float
     params: BaseParams
 
 
 class DCIMVariant(BaseModel):
+    """Configuration for a full DCIM variant."""
+
     model: Literal["dcim"]
     window_hours: float
     params: DCIMParams
@@ -44,11 +52,15 @@ VariantType = Annotated[
 
 
 class Severity(BaseModel):
+    """Registry of configured severity variants evaluated on every live tick."""
+
     variants: dict[str, VariantType]
 
     @property
     def variants_list(self) -> list[dict[str, Any]]:
-        """Return list of severity variants formatted for pipeline consumption."""
+        """Serialize variants into flat dictionaries with keys ``name``, ``model``,
+        ``window_hours``, and ``params``.
+        """
         return [
             {
                 "name": name,

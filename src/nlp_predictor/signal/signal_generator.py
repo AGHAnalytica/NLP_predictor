@@ -1,43 +1,14 @@
-"""
-Final signal generation — the layer that turns analysis into a decision.
-
-Fuses the two analysis paths into one actionable, per-instrument trading signal
-(UP / DOWN / NEUTRAL + a [0, 1] confidence). The upper path sets the direction
-(signed severity); the lower path modulates the confidence (macro context).
-
-The design idea (why there are two paths at all):
-- The UPPER path says how this *specific* instrument's news nets out — a signed
-severity in [-1, 1]. That is the source of truth for *direction*.
-- The LOWER path says what the *macro* narrative is doing. It does not set the
-direction; it *modulates confidence*. A single-instrument call that rides a matching
-macro narrative is more trustworthy; one that fights the macro tape is less, and a
-weak contrarian call can be vetoed down to NEUTRAL.
-- The two paths are linked by the ``topic_ids`` they share: a macro trend is relevant
-to an instrument only insofar as it is built from the same underlying news.
-
-This layer is deliberately DETERMINISTIC (no LLM). The semantic work was already done
-upstream (sentiment, directions, summaries), so the final fusion should be transparent,
-fast and auditable — you can read a signal's ``rationale`` and reconstruct exactly why
-it fired. All tunables live in Config under the ``SIGNAL_*`` keys.
-
-Output contract (one row per instrument, sorted by confidence):
-    - signal_id (str)            : unique uuid
-    - current_time (str)         : generation timestamp (UTC)
-    - instrument (str)           : ticker
-    - signal (str)               : 'UP' | 'DOWN' | 'NEUTRAL' (the decision)
-    - confidence (float)         : [0, 1]
-    - instrument_severity (float): signed DCIM severity from the upper path
-    - macro_context (str)        : 'AGREE' | 'CONFLICT' | 'NONE'
-    - n_topics (int)             : number of topics behind the instrument
-    - rationale (str)            : human-readable explanation of the decision
-    - topic_ids (list)           : the topics that drove this signal
+"""Deterministic signal fusion combining upper-path severity with lower-path macro
+context.
 """
 
 import ast
 import logging
 import math
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -46,20 +17,9 @@ from nlp_predictor.config import config
 logger = logging.getLogger(__name__)
 
 
-def _as_id_list(value: object) -> list:
-    """
-    Coerce a ``topic_ids`` cell into a list.
-    In-memory the column holds real lists; round-tripped through CSV it becomes a
-    string like ``"['a', 'b']"``. This handles both, plus missing/NaN values.
-
-    Args:
-        value (object): The value to coerce, which can be a list, a string
-        representation of a list, or something else (e.g., NaN).
-    Returns:
-        list: A list of topic IDs. If the input is already a list, it is returned as is.
-        If the input is a string that can be parsed as a list, the parsed list is
-        returned. For any other input (including NaN), an empty list is returned.
-
+def _as_id_list(value: object) -> list[str]:
+    """Coerce a ``topic_ids`` cell (list or serialized list string) into a Python
+    list.
     """
     if isinstance(value, list):
         return value
@@ -73,17 +33,32 @@ def _as_id_list(value: object) -> list:
 
 
 class SignalGenerator:
-    """
-    Combine the upper-path instrument trends and the lower-path macro trends into a
-    final per-instrument signal. Pure aggregation — no external calls — so it is cheap
-    to run and easy to unit-test against synthetic frames. The rationale field is a v
-    erbose, human-readable explanation of how the signal was reached, for auditability.
-    The macro modulation is designed to be interpretable and transparent, not a
-    black-box formula, so that the final signal can be easily traced back to its inputs.
-    The main method is ``generate()``, which takes the two input DataFrames and produces
-    the final signal DataFrame according to the contract described at the
-    top of this file. The other methods are helpers to keep the code organized and
-    readable.
+    r"""Fuses upper-path severity and lower-path macro climate into trading signals.
+
+    Direction is determined by the sign of instrument severity ``S`` in ``[-1, 1]``.
+    Base confidence ``abs(S)`` is modulated by macro agreement (``c_agree``) and
+    conflict (``c_conflict``):
+
+    .. math::
+
+        \text{conf} = \operatorname{clip}\!\Big(\lvert S \rvert \cdot
+        \max\!\big(0,\, 1 + \alpha_{\text{align}} c_{\text{agree}}
+        - \alpha_{\text{conflict}} c_{\text{conflict}}\big),\, 0,\, 1\Big)
+
+    Weak signals below ``neutral_threshold`` or contrarian calls triggering
+    ``macro_veto`` are gated to ``NEUTRAL``.
+
+    Output schema (:attr:`OUTPUT_COLUMNS`):
+        - ``signal_id`` (str): UUID4 identifier.
+        - ``current_time`` (str): Generation UTC timestamp (``YYYY-MM-DD HH:MM:SS``).
+        - ``instrument`` (str): Ticker symbol.
+        - ``signal`` (str): ``'UP'``, ``'DOWN'``, or ``'NEUTRAL'``.
+        - ``confidence`` (float): Confidence score in $[0, 1]$.
+        - ``instrument_severity`` (float): Signed severity score from the upper path.
+        - ``macro_context`` (str): ``'AGREE'``, ``'CONFLICT'``, or ``'NONE'``.
+        - ``n_topics`` (int): Number of supporting topics.
+        - ``rationale`` (str): Human-readable audit trail.
+        - ``topic_ids`` (list[str]): Contributing topic UUIDs.
     """
 
     OUTPUT_COLUMNS = [
@@ -103,33 +78,23 @@ class SignalGenerator:
         self,
         instrument_trends_df: pd.DataFrame,
         global_trends_df: pd.DataFrame | None = None,
-        macro_overlay: dict | None = None,
+        macro_overlay: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
-        """
-        Produce the final signal table. The main entry point for this class.
+        """Generate per-instrument signals sorted by descending confidence.
 
         Args:
-            instrument_trends_df (pd.DataFrame): Upper-path output. Needs
-                'instrument', 'severity', 'direction' and 'topic_ids' columns.
-            global_trends_df (pd.DataFrame | None): Lower-path macro clusters. Provides
-                the per-cluster 'topic_ids' and 'severity' used to weight each
-                instrument's climate conviction (:meth:`_macro_conviction`), and the
-                'direction' used by the legacy topic-overlap fallback.
-            macro_overlay (dict | None): Per-instrument climate effect from the LLM
-                macro overlay — ``{instrument: {'effect', 'strength', 'rationale'}}``
-                (see :class:`macro_overlay.MacroOverlay`). When provided, this is the
-                PRIMARY macro channel and it replaces the topic-overlap link: it covers
-                both the shared-topic case and the "unrelated instrument vs the broad
-                climate" case the topic overlap could not express. Computed once per
-                tick upstream (one shared LLM call), so it is identical across A/B
-                severity variants and does not confound their comparison. Climate
-                CONVICTION is derived per-instrument here from ``global_trends_df`` (the
-                driving clusters' severity), so it correctly reflects how big the
-                narrative behind each instrument actually is.
+            instrument_trends_df: Upper-path DataFrame with ``instrument``,
+                ``severity``,
+                ``direction``, and ``topic_ids``.
+            global_trends_df: Optional lower-path macro cluster DataFrame with
+                ``topic_ids``, ``severity``, ``direction``, and ``title``.
+            macro_overlay: Optional per-instrument effect map from :class:`MacroOverlay`
+                (``{instrument: {'effect', 'strength', 'rationale'}}``). When provided,
+                serves as the primary macro alignment channel.
 
         Returns:
-            pd.DataFrame: Signals with :attr:`OUTPUT_COLUMNS`, sorted by descending
-            confidence.
+            DataFrame conforming to :attr:`OUTPUT_COLUMNS`, sorted by ``confidence``
+                desc.
         """
         if instrument_trends_df is None or instrument_trends_df.empty:
             logger.info("No instrument trends; nothing to turn into signals.")
@@ -140,47 +105,27 @@ class SignalGenerator:
 
         signals = [
             self._signal_for_instrument(row, macro_index, now, macro_overlay)
-            for _, row in instrument_trends_df.iterrows()
+            for row in instrument_trends_df.to_dict(orient="records")
         ]
 
         result = pd.DataFrame(signals, columns=self.OUTPUT_COLUMNS)
-        result = result.sort_values("confidence", ascending=False)
-        result = result.reset_index(drop=True)
+        result = result.sort_values("confidence", ascending=False).reset_index(
+            drop=True
+        )
         logger.info(f"Generated {len(result)} instrument signals.")
         return result
 
-    def _build_macro_index(self, global_trends_df: pd.DataFrame | None) -> list[dict]:
-        """
-        Pre-digest the macro trends into ``{topic_ids: set, direction, title}`` records
-        so each instrument can be matched against them by shared topics. This also
-        gracefully handles the case where there are no macro trends (e.g., first-ever
-        run, or a failure in the lower path) by returning an empty index, which causes
-        the macro modulation step to be effectively skipped without errors. The index is
-        a list of dicts rather than a DataFrame for simplicity of use in the matching
-        step; we just need to iterate over the macro trends and check set intersections
-        with the instrument topics, so a list of dicts is straightforward and efficient
-        for that.
-
-        Args:
-            global_trends_df (pd.DataFrame | None): The DataFrame containing the macro
-            trends, which should have at least 'topic_ids', 'direction' and 'title'
-            columns. Can be None or empty, in which case an empty index is returned.
-
-        Returns:
-            list[dict]: A list of dictionaries, each representing a macro trend
-            with keys:
-            - 'topic_ids': a set of topic IDs associated with the macro trend
-            - 'direction': the direction of the macro trend ('up', 'down', 'neutral
-                etc.)
-            - 'title': the title of the macro trend for context
-            - 'severity': the cluster's topic count, used to weight per-instrument
-                conviction (see :meth:`_macro_conviction`)
+    def _build_macro_index(
+        self, global_trends_df: pd.DataFrame | None
+    ) -> list[dict[str, Any]]:
+        """Convert ``global_trends_df`` into a list of cluster dicts with set
+        ``topic_ids``.
         """
         if global_trends_df is None or global_trends_df.empty:
             return []
 
-        index: list[dict] = []
-        for _, row in global_trends_df.iterrows():
+        index: list[dict[str, Any]] = []
+        for row in global_trends_df.to_dict(orient="records"):
             topic_ids = set(_as_id_list(row.get("topic_ids")))
             if not topic_ids:
                 continue
@@ -198,33 +143,15 @@ class SignalGenerator:
             )
         return index
 
-    def _macro_conviction(self, instr_topics: set, macro_index: list[dict]) -> float:
-        """
-        Per-instrument climate conviction in [0, 1] — how much to trust the climate FOR
-        THIS instrument, weighted by the narratives that actually drive it.
+    def _macro_conviction(
+        self, instr_topics: set[str], macro_index: list[dict[str, Any]]
+    ) -> float:
+        r"""Compute per-instrument macro conviction $\tanh(\text{volume} / \text{scale})
+        \in [0, 1]$.
 
-        This fixes the global-sum flaw: a single ``tanh(total_volume / scale)`` scalar
-        gave an instrument the same conviction whether its true driver was 3 articles
-        or 20, as long as the climate-wide total matched. Instead we attribute
-        per-instrument with a hybrid:
-
-        - DIRECT involvement: if the instrument's own topics overlap one or more
-          clusters (it is literally part of those narratives), conviction comes from the
-          summed severity of just those driving clusters. So a GOOGL driven by a 3-topic
-          cluster scores ``tanh(3/scale)``; the same GOOGL with a 20-topic AI cluster
-          scores ``tanh(20/scale)`` — regardless of unrelated loud clusters.
-        - DIFFUSE fallback: if the instrument shares no topics with any cluster, the
-          effect is the broad market mood (e.g. a long fighting an unrelated risk-off
-          panic), so conviction is the whole climate's volume — that is the correct
-          weight for a diffuse, market-wide push.
-
-        Args:
-            instr_topics (set): The instrument's own topic IDs.
-            macro_index (list[dict]): Cluster records from :meth:`_build_macro_index`
-                (need 'topic_ids' and 'severity').
-
-        Returns:
-            float: Conviction in [0, 1].
+        Uses the summed severity of clusters overlapping ``instr_topics`` when direct
+        topic links exist, or falls back to total macro climate severity for diffuse
+        mood.
         """
         scale = float(config.hyperparams.signal.macro_conviction_scale)
         if scale <= 0.0 or not macro_index:
@@ -232,39 +159,19 @@ class SignalGenerator:
 
         drivers = [m for m in macro_index if instr_topics & m["topic_ids"]]
         if drivers:
-            volume = sum(m["severity"] for m in drivers)  # direct drivers only
+            volume = sum(m["severity"] for m in drivers)
         else:
-            volume = sum(m["severity"] for m in macro_index)  # diffuse: whole climate
+            volume = sum(m["severity"] for m in macro_index)
         return math.tanh(volume / scale)
 
     def _macro_alignment(
-        self, instr_topics: set, direction: str, macro_index: list[dict]
+        self,
+        instr_topics: set[str],
+        direction: str,
+        macro_index: list[dict[str, Any]],
     ) -> tuple[float, float, str]:
-        """
-        Measure how the macro narratives relate to this instrument's direction.
-
-        For every macro trend sharing topics, ``coverage`` is the fraction of the
-        instrument's own topics that fall inside that macro narrative. We keep the
-        strongest agreeing coverage and the strongest conflicting coverage (using the
-        single dominant narrative on each side rather than summing, to avoid
-        double-counting overlapping clusters).
-
-        Args:
-            instr_topics (set): The set of topic IDs associated with
-            the instrument trend.
-            direction (str): The direction of the instrument trend
-            ('up', 'down', 'neutral').
-            macro_index (list[dict]): The pre-digested macro index, where each dict has
-            'topic_ids', 'direction', and 'title' keys.
-
-        Returns:
-            - agree_coverage (float): The highest coverage of any macro narrative that
-            agrees with the instrument's direction.
-            - conflict_coverage (float): The highest coverage of any macro narrative
-            that conflicts with the instrument's direction.
-            - dominant_macro_title (str): The title of the dominant macro narrative (the
-            one with the highest coverage, whether agreeing or conflicting),
-            for context.
+        """Compute topic-overlap agreement and conflict coverage against macro
+        clusters.
         """
         agree_cov, agree_title = 0.0, ""
         conflict_cov, conflict_title = 0.0, ""
@@ -281,7 +188,7 @@ class SignalGenerator:
                 elif (
                     m_dir in ("up", "down")
                     and m_dir != direction
-                    and (coverage > conflict_cov)
+                    and coverage > conflict_cov
                 ):
                     conflict_cov, conflict_title = coverage, macro["title"]
 
@@ -292,30 +199,11 @@ class SignalGenerator:
     def _overlay_alignment(
         instrument: str,
         sev_direction: str,
-        macro_overlay: dict,
+        macro_overlay: dict[str, Any],
         macro_conviction: float,
     ) -> tuple[float, float, str]:
-        """
-        Climate-overlay alignment for one instrument (the primary macro channel).
-
-        The overlay says how the broad climate pushes this instrument's PRICE
-        ('tailwind' = up, 'headwind' = down, 'neutral'). We compare that to the
-        instrument's own signal direction: a push in the same direction agrees
-        (reinforces confidence), the opposite conflicts (trims/vetoes). The returned
-        agree/conflict are the EFFECTIVE alignment already scaled by both the LLM's
-        per-instrument ``strength`` and this instrument's ``macro_conviction`` (the
-        per-instrument conviction from :meth:`_macro_conviction`), so the downstream
-        confidence math is identical to the topic-overlap path.
-
-        Args:
-            instrument (str): The ticker.
-            sev_direction (str): The instrument's own direction ('up'/'down'/'neutral').
-            macro_overlay (dict): ``{instrument: {'effect', 'strength', 'rationale'}}``.
-            macro_conviction (float): This instrument's climate conviction in [0, 1].
-
-        Returns:
-            tuple[float, float, str]: ``(agree, conflict, title)`` — at most one of
-            agree/conflict is non-zero; title is the climate's rationale for this name.
+        """Compute effective agreement/conflict from the LLM macro overlay and
+        conviction.
         """
         if sev_direction not in ("up", "down") or macro_conviction <= 0.0:
             return 0.0, 0.0, ""
@@ -345,33 +233,13 @@ class SignalGenerator:
 
     def _signal_for_instrument(
         self,
-        row: pd.Series,
-        macro_index: list[dict],
+        row: Mapping[str, Any],
+        macro_index: list[dict[str, Any]],
         now: str,
-        macro_overlay: dict | None = None,
-    ) -> dict:
-        """
-        Turn one upper-path instrument trend into a final signal row.
-        The logic is as follows:
-        - Start with the severity sign for direction and magnitude for base confidence.
-        - Modulate confidence based on the macro alignment (coverage of shared topics
-        with macro narratives, and whether they agree or conflict).
-        - Apply gating rules: if severity is too weak, or if there is a strong macro
-        veto, set the signal to NEUTRAL and explain why in the rationale.
-        - Compose a human-readable rationale that explains the key factors behind the
-        signal, for auditability.
-
-        Args:
-            row (pd.Series): A row from the instrument trends DataFrame, which should
-            contain at least 'instrument', 'severity', 'direction' and 'topic_ids'
-            fields. macro_index (list[dict]): The pre-digested macro index
-            for alignment.
-            now (str): The current timestamp as a string, to be used in the signal
-            output for consistency.
-
-        Returns:
-            dict: A dictionary representing the signal for this instrument, with keys
-            corresponding to the OUTPUT_COLUMNS of the final signal DataFrame.
+        macro_overlay: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compute direction, modulated confidence, gating, and rationale for one
+        instrument.
         """
         instrument = str(row["instrument"])
         severity = float(row.get("severity", 0.0))
@@ -379,23 +247,9 @@ class SignalGenerator:
         instr_topics = set(_as_id_list(row.get("topic_ids")))
         n_topics = len(instr_topics)
 
-        # Direction comes from the quantitative severity sign (the source of truth).
-        # The per-instrument LLM summary's stated direction is deliberately NOT
-        # consulted here: it would inject a stochastic, non-reproducible factor that
-        # differs between severity methods, breaking the A/B/n comparison where the
-        # method must be the only variable. The severity sign is the whole decision.
         sev_direction = "up" if severity > 0 else "down" if severity < 0 else "neutral"
-
-        # 1) Base confidence is just |severity|. The DCIM already folds article
-        #    volume, source weight, consensus and recency into that magnitude, so
-        #    there is nothing extra to add here.
         base_conf = strength
 
-        # 2) Macro modulation. Prefer the LLM climate overlay (primary channel); fall
-        #    back to the legacy topic-overlap link only when no overlay was supplied.
-        #    Either way we end up with effective agree/conflict in [0, 1], so the
-        #    confidence math below is identical regardless of source. Conviction is
-        #    computed per-instrument from the driving clusters, not a global scalar.
         if macro_overlay is not None:
             macro_conviction = self._macro_conviction(instr_topics, macro_index)
             agree_cov, conflict_cov, macro_title = self._overlay_alignment(
@@ -405,6 +259,7 @@ class SignalGenerator:
             agree_cov, conflict_cov, macro_title = self._macro_alignment(
                 instr_topics, sev_direction, macro_index
             )
+
         macro_factor = (
             1.0
             + float(config.hyperparams.signal.macro_align_bonus) * agree_cov
@@ -413,7 +268,6 @@ class SignalGenerator:
         macro_factor = max(0.0, macro_factor)
         confidence = base_conf * macro_factor
 
-        # 3) Gating + macro veto -> the final discrete decision.
         signal = sev_direction.upper()
         gate_reason = ""
         if strength < float(config.hyperparams.signal.neutral_threshold):
@@ -478,38 +332,8 @@ class SignalGenerator:
         confidence: float,
         gate_reason: str,
     ) -> str:
-        """
-        Compose a short, human-readable explanation of how the signal was reached.
-        This is crucial for auditability and trust in the system, allowing a human
-        to understand the key factors behind each signal and to reconstruct the logic if
-        needed. The rationale includes the severity and its strength, the number of
-        topics (as a proxy for signal robustness), the macro context (agreement or
-        conflict with macro narratives), and any internal conflicts or gating reasons.
-        The macro modulation is explained in terms of coverage of shared topics with
-        macro narratives, and the presence of a strong macro veto is explicitly called
-        out when it applies. The rationale is designed to be concise but informative,
-        giving a clear picture of why the system made the decision it did for each
-        instrument.
-
-        Args:
-            severity (float): The signed severity score from the upper path.
-            sev_direction (str): The direction implied by the severity ('up', 'down',
-            'neutral').
-            n_topics (int): The number of topics associated with this instrument trend.
-            macro_context (str): The macro context classification ('AGREE', 'CONFLICT',
-            'NONE').
-            macro_title (str): The title of the dominant macro narrative for context.
-            agree_cov (float): The coverage of agreeing macro narratives.
-            conflict_cov (float): The coverage of conflicting macro narratives.
-            signal (str): The final discrete signal ('UP', 'DOWN', 'NEUTRAL').
-            confidence (float): The final confidence score in [0, 1].
-            gate_reason (str): If the signal was gated to NEUTRAL, the reason for the
-            gating.
-
-        Returns:
-            str: A human-readable rationale explaining how the signal was derived from
-            the inputs.
-
+        """Format a concise human-readable audit string explaining the signal
+        decision.
         """
         strength = abs(severity)
         strength_word = (
@@ -544,7 +368,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
-    )  # noqa: E501
+    )
     logger.info("====== SignalGenerator Module Test ======")
     try:
         instrument_trends = pd.read_csv(config.paths.output.instrument_trends_csv)

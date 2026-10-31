@@ -1,8 +1,4 @@
-"""
-Application logging configuration.
-
-Sets up structured logging to both console (stdout/stderr) and daily log files.
-"""
+"""Application logging setup for console and daily rotating file output."""
 
 import logging
 from datetime import UTC, datetime
@@ -15,21 +11,16 @@ def setup_logging(
     level: int = logging.INFO,
     log_dir: Path | str | None = None,
 ) -> Path:
-    """
-    Configure application logging to both console and a daily log file.
-
-    Log file path is derived from config.paths.logs.log (default: logs/{date}.log)
-    or custom log_dir if provided.
+    """Configure root logging with a stream handler and a UTC-dated file handler.
 
     Args:
-        level (int): Logging level (default: logging.INFO).
-        log_dir (Path | str | None): Optional custom directory for log files.
+        level: Logging verbosity level (defaults to ``logging.INFO``).
+        log_dir: Optional directory override; defaults to ``config.paths.logs.log``.
 
     Returns:
-        Path: Absolute path to the active log file.
+        Absolute ``Path`` to the active log file.
     """
-    now = datetime.now(UTC)
-    date_str = now.strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
 
     if log_dir is not None:
         log_file = (Path(log_dir) / f"{date_str}.log").resolve()
