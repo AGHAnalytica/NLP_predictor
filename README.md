@@ -101,15 +101,15 @@ flowchart TD
 ### Data Flow Pipeline (4 Groups)
 1. **Group 1 — Scraping & Preprocessing (`nlp_predictor.scraping`, `nlp_predictor.preprocessing.clean_data`)**:
    - Fetches live RSS/HTML feeds (AP News, BBC, CNBC) or historical archives.
-   - Extracts clean article text (`trafilatura` or fast regex fragment stripping), normalizes timestamps to UTC, and generates deterministic SHA-256 content hashes (`doc_hash`) for $O(1)$ deduplication.
+   - Extracts clean article text (`trafilatura` or fast regex fragment stripping), normalizes timestamps to UTC, and generates deterministic SHA-256 content hashes (`doc_hash`) for `O(1)` deduplication.
 2. **Group 2 — Feature Ingestion & Rolling Cache (`nlp_predictor.preprocessing`)**:
    - `TopicExtractor` uses OpenAI Structured Outputs (`ExtractedTopics`) to extract self-contained market-moving events from unseen articles.
    - `FeatureIngestor` computes topic embeddings (`LowerPathAnalyzer.generate_embeddings_batch`) and instrument sentiment mappings (`UpperPathAnalyzer.map_topics`) **once per unique `doc_hash`** and stores them in `FeatureStore` (`data/feature_store/topic_features.parquet`).
 3. **Group 3 & 4 — Dual-Path Analysis (`nlp_predictor.upper_path`, `nlp_predictor.lower_path`)**:
-   - **Upper Path (`UpperPathAnalyzer`)**: Explodes cached topic impacts per instrument and evaluates signed severity $S \in [-1.0, 1.0]$ across all configured A/B/n severity variants (`baseline`, `dcim`, `abnormal_volume`) **without repeating LLM calls**.
+   - **Upper Path (`UpperPathAnalyzer`)**: Explodes cached topic impacts per instrument and evaluates signed severity `S` in `[-1.0, 1.0]` across all configured A/B/n severity variants (`baseline`, `dcim`, `abnormal_volume`) **without repeating LLM calls**.
    - **Lower Path (`LowerPathAnalyzer` & `MacroOverlayAnalyzer`)**: Clusters topic embeddings via `HDBSCAN` to discover global macro narratives, computes cluster intensity, and classifies each instrument's macro climate exposure (`tailwind`, `headwind`, `neutral`).
 4. **Signal Fusion & Evaluation Logging (`nlp_predictor.signal`, `nlp_predictor.tick`)**:
-   - `SignalGenerator` deterministically fuses Upper Path severity $S$ with Lower Path macro alignment/conflict to emit `UP`, `DOWN`, or `NEUTRAL` signals with calibrated confidence $\in [0, 1]$ and human-readable audit rationales.
+   - `SignalGenerator` deterministically fuses Upper Path severity `S` with Lower Path macro alignment/conflict to emit `UP`, `DOWN`, or `NEUTRAL` signals with calibrated confidence in `[0.0, 1.0]` and human-readable audit rationales.
    - `TickRunner` orchestrates a full 15-minute evaluation tick across all configured variants in `configs/severity.yaml` and appends results to `SignalLog` (`data/signal_log/signals_log.parquet`).
 
 ---
@@ -212,7 +212,7 @@ uv run main
 ```
 
 ### 2. Run the End-to-End Sample Pipeline (`scripts/run_large_test.py`)
-Runs `TopicExtractor` $\rightarrow$ `UpperPathAnalyzer` $\rightarrow$ `LowerPathAnalyzer` $\rightarrow$ `SignalGenerator` on `data/scraping/articles_sample_large.csv` and writes CSV reports to `data/test_results/*_large.csv`:
+Runs `TopicExtractor` → `UpperPathAnalyzer` → `LowerPathAnalyzer` → `SignalGenerator` on `data/scraping/articles_sample_large.csv` and writes CSV reports to `data/test_results/*_large.csv`:
 ```bash
 uv run python scripts/run_large_test.py
 ```
@@ -303,32 +303,57 @@ To test a new hyperparameter combination or window length in the A/B/n tick loop
 The **Directional Confirmed Impact Model (DCIM)** evaluates signed instrument sentiment $S \in [-1.0, 1.0]$ across a rolling window of news topics through 5 mathematical phases:
 
 ### Phase 1: Exponential Time Decay & Raw Impact
-Decays older articles based on their age $\Delta t$ relative to the current tick timestamp:
-$$w_{\text{decay}} = 2^{-\frac{\Delta t}{\tau}}$$
-where $\tau$ is `half_life_hours`. The per-article raw impact is:
-$$I_{\text{raw}} = \text{source\_weight} \cdot \text{sentiment} \cdot w_{\text{decay}}$$
+Decays older articles based on their age $\Delta t$ (in hours) relative to the current tick timestamp, where $\tau$ is `half_life_hours`, $w_i$ is `source_weight`, and $s_i$ is `sentiment`:
+
+$$
+w_{\text{decay}, i} = 2^{-\Delta t_i / \tau}
+$$
+
+$$
+I_{\text{raw}, i} = w_i \cdot s_i \cdot w_{\text{decay}, i}
+$$
 
 ### Phase 2: Echo-Chamber Penalty
-Mitigates repetitive coverage from the same media publisher pushing in the same direction. For the $k$-th article from source $s$:
-$$p_k = 1.0 + \beta \cdot k, \quad k \in \{0, 1, 2, \dots\}$$
-$$\text{Impact}_s = \sum_{k} \frac{I_{\text{raw}, k}}{p_k}$$
+Mitigates repetitive coverage from the same media publisher pushing in the same direction. For the $k$-th same-sign article ($k \in \{0, 1, 2, \dots\}$) from publisher $s$:
+
+$$
+p_k = 1 + \beta \cdot k
+$$
+
+$$
+I_{\text{source}, s} = \sum_{k} \frac{I_{\text{raw}, k}}{1 + \beta \cdot k}
+$$
+
 Diminishing returns prevent a single publisher from dominating the narrative.
 
 ### Phase 3: Cross-Source Consensus Bonus
-Rewards broad agreement across $U$ independent news publishers. If $U \ge 2$:
-$$C = 1.0 + \gamma \cdot \frac{U_{\text{agree}}}{U}$$
-where $U_{\text{agree}}$ is the count of sources whose net sentiment agrees with the overall directional sign.
+Rewards broad agreement across $U$ independent news publishers. When $U \ge 2$:
+
+$$
+C = 1 + \gamma \cdot \frac{U_{\text{agree}}}{U}
+$$
+
+where $U_{\text{agree}}$ is the count of distinct sources whose net impact agrees with the overall directional sign.
 
 ### Phase 4: Velocity Multiplier
-Detects sudden surges in breaking news coverage:
-$$V = \frac{N_{\text{recent}}}{N_{\text{total}} + 1.0}, \quad M_V = 1.0 + \delta \cdot V$$
-where $N_{\text{recent}}$ is the number of articles published within `recent_window_hours`.
+Detects sudden surges in breaking news coverage within `recent_window_hours`:
+
+$$
+V = \frac{N_{\text{recent}}}{N_{\text{total}} + 1}, \quad M_V = 1 + \delta \cdot V
+$$
 
 ### Phase 5: Scaling & Hyperbolic Tangent Squash
-Combines all phases and applies a smooth bounded activation:
-$$z = \kappa \cdot C \cdot M_V \cdot \sum_{s} \text{Impact}_s$$
-$$S_{\text{DCIM}} = \tanh(z) \in [-1.0, 1.0]$$
-The resulting signed score serves as the primary quantitative driver for direction and base confidence in signal generation.
+Combines all phases and applies a smooth bounded activation in $[-1.0, 1.0]$:
+
+$$
+S_{\text{DCIM}} = \tanh\!\left(\kappa \cdot C \cdot M_V \cdot \sum_{s} I_{\text{source}, s}\right)
+$$
+
+The resulting signed score $S_{\text{DCIM}}$ serves as the primary quantitative driver for signal direction and base confidence:
+
+$$
+\text{confidence} = \operatorname{clip}\!\left(|S_{\text{DCIM}}| \cdot \max\!\left(0,\, 1 + \alpha_{\text{align}} c_{\text{agree}} - \alpha_{\text{conflict}} c_{\text{conflict}}\right),\, 0,\, 1\right)
+$$
 
 ---
 
