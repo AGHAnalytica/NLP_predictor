@@ -1,0 +1,40 @@
+paths:
+  input:
+    instruments: "data/instruments/instruments_sample.csv"
+    instruments_large: "data/instruments/instruments_sample_large.csv"
+    topics: "data/topics/topics_sample_large.csv"
+    articles: "data/scraping/articles_sample.csv"
+    articles_large: "data/scraping/articles_sample_large.csv"
+    weights: "data/scraping/source_weights_sample.csv"
+
+  output:
+    test_results_dir: "data/test_results"
+    topics_csv: "data/test_results/topics_report.csv"
+    topics_parquet: "data/test_results/topics_parquet"
+    global_trends_csv: "data/test_results/global_trends_report.csv"
+    global_trends_parquet: "data/test_results/global_trends_parquet"
+    instrument_trends_csv: "data/test_results/instrument_trends_report.csv"
+    instrument_trends_parquet: "data/test_results/instrument_trends_parquet"
+    signals_csv: "data/test_results/signals_report.csv"
+    signals_parquet: "data/test_results/signals_parquet"
+    topics_large_csv: "data/test_results/topics_report_large.csv"
+    global_trends_large_csv: "data/test_results/global_trends_report_large.csv"
+    instrument_trends_large_csv: "data/test_results/instrument_trends_report_large.csv"
+    signals_large_csv: "data/test_results/signals_report_large.csv"
+
+  logs:
+    signal_log: "data/signal_log/signals_log.parquet"
+    log: "logs/{date}.log"
+
+  cache:
+    feature_store: "data/feature_store/topic_features.parquet"
+    scraped_history: "data/scraping/scraped_history.parquet"
+
+  historical:
+    news_csv: "data/historical/alpaca_news.csv"
+    news_parquet: "data/historical/alpaca_news.parquet"
+    news_clean: "data/historical/alpaca_news_clean.parquet"
+    news_filtered: "data/historical/alpaca_news_filtered.parquet"
+    partitioned_dir: "data/historical/alpaca_news_partitioned"
+    xfinlink: "data/historical/xfinlink"
+
