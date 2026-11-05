@@ -8,23 +8,24 @@ This file defines mandatory rules for AI coding assistants (Antigravity, Cursor,
 
 `NLP_predictor` is a dual-path financial NLP and quantitative signal generation pipeline:
 
-- **`nlp_predictor.config`**: Pydantic-validated YAML configuration (`configs/config.yaml`, `configs/hyperparams/`, `configs/paths/`, `configs/severity/`, `configs/backtesting/`). Access all settings exclusively via typed attributes on `from nlp_predictor.config import config` (e.g., `config.hyperparams.upper_path.dcim.half_life_hours`). **Never** add dictionary-style `config["..."]` accessors or metaclass shims.
+- **`nlp_predictor.config`**: Pydantic-validated YAML configuration (`configs/paths.yaml`, `configs/hyperparameters.yaml`, `configs/severity.yaml`, `configs/backtesting.yaml`). Access all settings exclusively via typed attributes on `from nlp_predictor.config import config` (e.g., `config.hyperparams.upper_path.dcim.half_life_hours`). **Never** add dictionary-style `config["..."]` accessors or metaclass shims.
 - **`nlp_predictor.core`**: Shared base classes and pure mathematical models:
   - `base_analyzer.py`: `BaseAnalyzer` (OpenAI Structured Outputs with Tenacity retries, thread-pooled `_parallel_map`, PyArrow Parquet persistence) and `load_instrument_universe()`.
+  - `parquet_io.py`: Shared Parquet read/write and JSON-column serialization helpers (`serialize_json_cell`, `deserialize_json_cell`, `read_raw_parquet`, `write_raw_parquet`).
   - `severity_models.py`: Pure, stateless functions for instrument severity (`SEVERITY_REGISTRY`: `baseline`, `dcim`, `abnormal_volume`) and macro cluster intensity (`MACRO_SEVERITY_REGISTRY`: `count`, `decayed_weighted`).
   - `logging_config.py`: `structlog` + stdlib logging setup.
 - **`nlp_predictor.scraping`**: Extensible content ingestion built on `BaseScraper`:
   - HTML/RSS scrapers use `process_article()` and `_run_rss_pipeline()`.
   - Text/API/Social scrapers (e.g., Twitter/X, wire feeds) use `process_text_item()` and custom `min_content_length`.
 - **`nlp_predictor.preprocessing`**:
-  - `clean_data.py`: HTML extraction (`trafilatura`), Unicode/whitespace normalization, UTC date parsing, SHA-256 deduplication hashing.
+  - `clean_data.py`: HTML extraction (`trafilatura`), fast HTML fragment stripping (`strip_html_fragments`), source column normalization (`normalize_source_column`), Unicode/whitespace normalization, UTC date parsing, SHA-256 deduplication hashing.
   - `topic_extractor.py`: LLM extraction of market-moving events (`ExtractedTopics`).
   - `feature_store.py` & `feature_ingestor.py`: Rolling Parquet cache (`FeatureStore`) storing per-topic embeddings and instrument impacts keyed by `doc_hash` so each article is processed by the LLM/embedding API **only once**.
 - **`nlp_predictor.upper_path`**: Instrument-specific sentiment mapping (`UpperPathAnalyzer.map_topics`) and multi-variant severity scoring (`score_variants`, `generate_variant_trends`). **Must never import from `lower_path`.**
 - **`nlp_predictor.lower_path`**: Unsupervised semantic clustering (`HDBSCAN` in `LowerPathAnalyzer`) and per-instrument macro tailwind/headwind classification (`MacroOverlayAnalyzer`). **Must never import from `upper_path`.**
 - **`nlp_predictor.signal`**: Deterministic fusion of upper-path severity and lower-path macro context (`SignalGenerator`) and append-only Parquet evaluation logging (`SignalLog`).
 - **`nlp_predictor.tick`**: Single-tick A/B/n orchestrator (`TickRunner`) evaluating all configured severity variants over a shared cached window and shared macro climate.
-- **`nlp_predictor.backtesting`**: Historical news ingestion (`alpaca_news.py`), cleaning (`clean_news.py`), and synchronized market price fetching (`price_fetcher.py`).
+- **`nlp_predictor.backtesting`**: Historical news ingestion (`alpaca_news.py`), cleaning and spam/ticker/macro filtering (`clean_news.py`), point-in-time constituent/fundamental/price data (`xfinlink_client.py`), and synchronized market price fetching (`price_fetcher.py`).
 
 ---
 
