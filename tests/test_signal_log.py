@@ -8,7 +8,7 @@ empty/no-op guard. Uses a tmp parquet path so nothing touches the real log.
 
 import pandas as pd
 
-from nlp_predictor.signal_log import SignalLog
+from nlp_predictor.signal.signal_log import SignalLog
 
 
 def _log(tmp_path):
@@ -17,21 +17,25 @@ def _log(tmp_path):
 
 def _rows(tick_id, variant="dcim_16h", instrument="AAPL", signal="UP"):
     # Includes extra columns (signal_id/current_time) that the fixed schema should drop.
-    return pd.DataFrame([{
-        "signal_id": "x",
-        "current_time": "2026-06-04 12:00:00",
-        "tick_id": tick_id,
-        "tick_time": "2026-06-04 12:00:00",
-        "variant": variant,
-        "instrument": instrument,
-        "signal": signal,
-        "confidence": 0.6,
-        "instrument_severity": 0.5,
-        "macro_context": "AGREE",
-        "n_topics": 2,
-        "topic_ids": ["t1", "t2"],
-        "rationale": "because",
-    }])
+    return pd.DataFrame(
+        [
+            {
+                "signal_id": "x",
+                "current_time": "2026-06-04 12:00:00",
+                "tick_id": tick_id,
+                "tick_time": "2026-06-04 12:00:00",
+                "variant": variant,
+                "instrument": instrument,
+                "signal": signal,
+                "confidence": 0.6,
+                "instrument_severity": 0.5,
+                "macro_context": "AGREE",
+                "n_topics": 2,
+                "topic_ids": ["t1", "t2"],
+                "rationale": "because",
+            }
+        ]
+    )
 
 
 def test_append_then_load_round_trip(tmp_path):

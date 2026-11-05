@@ -11,20 +11,28 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
-from nlp_predictor.feature_store import FeatureStore
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
-from nlp_predictor.macro_overlay import MacroOverlay
-from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.signal_log import SignalLog
+from nlp_predictor.lower_path.macro_overlay import MacroOverlay
+from nlp_predictor.preprocessing.feature_store import FeatureStore
+from nlp_predictor.signal.signal_generator import SignalGenerator
+from nlp_predictor.signal.signal_log import SignalLog
 from nlp_predictor.tick import TickRunner
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 
 VARIANTS = [
-    {"name": "baseline_16h", "model": "baseline", "window_hours": 16.0,
-     "params": {"half_life_hours": 12.0, "kappa_scale": 0.8}},
-    {"name": "dcim_12h", "model": "dcim", "window_hours": 12.0,
-     "params": {"half_life_hours": 8.0, "kappa_scale": 0.8}},
+    {
+        "name": "baseline_16h",
+        "model": "baseline",
+        "window_hours": 16.0,
+        "params": {"half_life_hours": 12.0, "kappa_scale": 0.8},
+    },
+    {
+        "name": "dcim_12h",
+        "model": "dcim",
+        "window_hours": 12.0,
+        "params": {"half_life_hours": 8.0, "kappa_scale": 0.8},
+    },
 ]
 
 
@@ -54,38 +62,76 @@ class _FakeMacro:
 
 def _populate_store(store):
     """Cache three topics (AAPL x2, SPY x1) as if already ingested this/last tick."""
-    records = pd.DataFrame([
-        {"doc_hash": "h1", "topic_id": "t1", "topic_name": "AI capex",
-         "topic_description": "d", "date": NOW - timedelta(hours=2),
-         "source_name": "Bloomberg", "source_weight": 1.0, "embedding": [0.1, 0.2],
-         "impacts": [{"instrument": "AAPL", "sentiment": 0.5}]},
-        {"doc_hash": "h2", "topic_id": "t2", "topic_name": "Cloud demand",
-         "topic_description": "d", "date": NOW - timedelta(hours=3),
-         "source_name": "Reuters", "source_weight": 0.95, "embedding": [0.1, 0.3],
-         "impacts": [{"instrument": "AAPL", "sentiment": 0.5}]},
-        {"doc_hash": "h3", "topic_id": "t3", "topic_name": "Risk off",
-         "topic_description": "d", "date": NOW - timedelta(hours=1),
-         "source_name": "CNBC", "source_weight": 0.8, "embedding": [-0.4, 0.1],
-         "impacts": [{"instrument": "SPY", "sentiment": -0.5}]},
-    ])
+    records = pd.DataFrame(
+        [
+            {
+                "doc_hash": "h1",
+                "topic_id": "t1",
+                "topic_name": "AI capex",
+                "topic_description": "d",
+                "date": NOW - timedelta(hours=2),
+                "source_name": "Bloomberg",
+                "source_weight": 1.0,
+                "embedding": [0.1, 0.2],
+                "impacts": [{"instrument": "AAPL", "sentiment": 0.5}],
+            },
+            {
+                "doc_hash": "h2",
+                "topic_id": "t2",
+                "topic_name": "Cloud demand",
+                "topic_description": "d",
+                "date": NOW - timedelta(hours=3),
+                "source_name": "Reuters",
+                "source_weight": 0.95,
+                "embedding": [0.1, 0.3],
+                "impacts": [{"instrument": "AAPL", "sentiment": 0.5}],
+            },
+            {
+                "doc_hash": "h3",
+                "topic_id": "t3",
+                "topic_name": "Risk off",
+                "topic_description": "d",
+                "date": NOW - timedelta(hours=1),
+                "source_name": "CNBC",
+                "source_weight": 0.8,
+                "embedding": [-0.4, 0.1],
+                "impacts": [{"instrument": "SPY", "sentiment": -0.5}],
+            },
+        ]
+    )
     store.add(records, now=NOW)
 
 
 def _global_trends():
     """A macro climate where AAPL's topics (t1,t2) are a strong direct driver."""
-    return pd.DataFrame([
-        {"title": "AI boom", "direction": "up", "severity": 20,
-         "topic_ids": ["t1", "t2"], "description": "d"},
-        {"title": "Risk off", "direction": "down", "severity": 5,
-         "topic_ids": ["t3"], "description": "d"},
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "title": "AI boom",
+                "direction": "up",
+                "severity": 20,
+                "topic_ids": ["t1", "t2"],
+                "description": "d",
+            },
+            {
+                "title": "Risk off",
+                "direction": "down",
+                "severity": 5,
+                "topic_ids": ["t3"],
+                "description": "d",
+            },
+        ]
+    )
 
 
 def _overlay():
-    return MacroOverlay(effects={
-        "AAPL": {"effect": "tailwind", "strength": 1.0, "rationale": "AI boom"},
-        "SPY": {"effect": "headwind", "strength": 1.0, "rationale": "risk off"},
-    }, conviction=0.9)
+    return MacroOverlay(
+        effects={
+            "AAPL": {"effect": "tailwind", "strength": 1.0, "rationale": "AI boom"},
+            "SPY": {"effect": "headwind", "strength": 1.0, "rationale": "risk off"},
+        },
+        conviction=0.9,
+    )
 
 
 def _fakes():
@@ -93,8 +139,9 @@ def _fakes():
 
 
 def _runner(tmp_path, lower, macro):
-    store = FeatureStore(path=str(tmp_path / "fs" / "feat.parquet"),
-                         max_window_hours=36.0)
+    store = FeatureStore(
+        path=str(tmp_path / "fs" / "feat.parquet"), max_window_hours=36.0
+    )
     _populate_store(store)
     log = SignalLog(path=str(tmp_path / "log" / "sig.parquet"))
     runner = TickRunner(
@@ -149,13 +196,18 @@ def test_direction_follows_severity_sign(tmp_path):
 
 
 def test_empty_store_yields_no_signals(tmp_path):
-    store = FeatureStore(path=str(tmp_path / "fs" / "feat.parquet"),
-                         max_window_hours=36.0)  # never populated
+    store = FeatureStore(
+        path=str(tmp_path / "fs" / "feat.parquet"), max_window_hours=36.0
+    )  # never populated
     log = SignalLog(path=str(tmp_path / "log" / "sig.parquet"))
     lower, macro = _FakeLower(_global_trends()), _FakeMacro(_overlay())
     runner = TickRunner(
-        store=store, upper=UpperPathAnalyzer.__new__(UpperPathAnalyzer),
-        lower=lower, macro=macro, signal=SignalGenerator(), log=log,
+        store=store,
+        upper=UpperPathAnalyzer.__new__(UpperPathAnalyzer),
+        lower=lower,
+        macro=macro,
+        signal=SignalGenerator(),
+        log=log,
         variants=VARIANTS,
     )
     assert runner.run(now=NOW).empty

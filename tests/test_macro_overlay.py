@@ -8,8 +8,8 @@ import math
 
 import pandas as pd
 
-from nlp_predictor.config import Config
-from nlp_predictor.macro_overlay import (
+from nlp_predictor.config import config
+from nlp_predictor.lower_path.macro_overlay import (
     MacroOverlay,
     MacroOverlayAnalyzer,
     _InstrumentEffect,
@@ -28,14 +28,17 @@ def _analyzer(tickers=("AAPL", "SPY", "GLD")):
 def _global_trends(rows):
     """rows: list of (title, direction, severity)."""
     return pd.DataFrame(
-        [{"title": t, "direction": d, "severity": s, "description": "desc"}
-         for t, d, s in rows]
+        [
+            {"title": t, "direction": d, "severity": s, "description": "desc"}
+            for t, d, s in rows
+        ]
     )
 
 
 def test_overlay_for_instrument_defaults_neutral():
-    ov = MacroOverlay(effects={"AAPL": {"effect": "tailwind", "strength": 0.8,
-                                        "rationale": "r"}})
+    ov = MacroOverlay(
+        effects={"AAPL": {"effect": "tailwind", "strength": 0.8, "rationale": "r"}}
+    )
     assert ov.for_instrument("AAPL")["effect"] == "tailwind"
     miss = ov.for_instrument("UNKNOWN")
     assert miss["effect"] == "neutral" and miss["strength"] == 0.0
@@ -50,7 +53,7 @@ def test_build_empty_when_no_trends():
 def test_conviction_is_tanh_of_total_severity():
     a = _analyzer()
     gt = _global_trends([("A", "up", 6), ("B", "down", 4)])  # total 10
-    scale = float(Config["MACRO_CONVICTION_SCALE"])
+    scale = float(config.hyperparams.signal.macro_conviction_scale)
     assert a._conviction(gt) == math.tanh(10.0 / scale)
 
 
@@ -78,12 +81,14 @@ def test_map_climate_validates_and_clamps(monkeypatch):
             ticker=ticker, effect=effect, strength=strength, rationale="r"
         )
 
-    fake = _MacroMapping(effects=[
-        _e("AAPL", "Tailwind", 1.5),   # mixed case + over-range strength
-        _e("SPY", "headwind", 0.4),
-        _e("FAKE", "tailwind", 0.9),   # unknown ticker -> dropped
-        _e("AAPL", "sideways", 0.2),   # invalid effect -> dropped
-    ])
+    fake = _MacroMapping(
+        effects=[
+            _e("AAPL", "Tailwind", 1.5),  # mixed case + over-range strength
+            _e("SPY", "headwind", 0.4),
+            _e("FAKE", "tailwind", 0.9),  # unknown ticker -> dropped
+            _e("AAPL", "sideways", 0.2),  # invalid effect -> dropped
+        ]
+    )
     monkeypatch.setattr(a, "_call_openai_api_with_retry", lambda prompt, schema: fake)
 
     effects = a._map_climate("some climate")

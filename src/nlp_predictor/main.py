@@ -1,114 +1,92 @@
+"""Application entry point executing one 15-minute scrape, ingest, and evaluation
+tick.
 """
-Application entry point — ONE 15-minute tick of the live A/B/n loop.
 
-This is the process Azure Container Apps invokes on its schedule (every ~15 min): each
-call is a single, self-contained tick, so there is no in-process scheduler here — the
-container runtime owns the cadence.
-
-A tick has two halves, split exactly along the feature store:
-
-    WRITE (ingestion)   scrape new articles -> compute their features once -> cache them
-                        (:class:`ingestion.FeatureIngestor`; Grupa 1 + Grupa 2)
-    READ  (tick)        score every severity variant on the cached window, fuse with one
-                        shared macro climate, append each signal to the eval log
-                        (:class:`tick.TickRunner`; Grupa 3 + Grupa 4 + fusion)
-
-Because the expensive, stochastic work (extraction, embeddings, topic->instrument
-mapping) is cached on first sight of an article and reused for every later tick it stays
-in-window, a steady-state tick mostly does cheap, deterministic severity recomputation
-plus one shared macro LLM call. The durable output is the append-only signal log
-(``Config["SIGNAL_LOG_PATH"]``) — the dataset each variant's demo-account PnL is scored
-against.
-"""
+import logging
 
 import pandas as pd
 from dotenv import load_dotenv
 
-from nlp_predictor.config import Config
-from nlp_predictor.feature_store import FeatureStore
-from nlp_predictor.global_trends import LowerPathAnalyzer
-from nlp_predictor.ingestion import FeatureIngestor
-from nlp_predictor.instrument_trends import UpperPathAnalyzer
-from nlp_predictor.macro_overlay import MacroOverlayAnalyzer
-from nlp_predictor.scraper_runner import run_real_scrapers
-from nlp_predictor.signal_generator import SignalGenerator
-from nlp_predictor.signal_log import SignalLog
-from nlp_predictor.tick import TickRunner
-from nlp_predictor.topic_extractor import TopicExtractor
+from nlp_predictor.config import config
+from nlp_predictor.core.logging_config import setup_logging
+from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
+from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
+from nlp_predictor.preprocessing.clean_data import normalize_source_column
+from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
+from nlp_predictor.preprocessing.feature_store import FeatureStore
+from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
+from nlp_predictor.scraping.scrape_runner import run_real_scrapers
+from nlp_predictor.signal.signal_generator import SignalGenerator
+from nlp_predictor.signal.signal_log import SignalLog
+from nlp_predictor.tick.tick_runner import TickRunner
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
-# Load environment variables (OPENAI_API_KEY) from the project-root .env
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Execute one complete pipeline cycle: scrape articles, cache features, and log
+    signals.
     """
-    Run exactly one tick: scrape, ingest new article features, emit per-variant signals.
+    if not logging.getLogger().hasHandlers():
+        setup_logging()
 
-    Steps:
-      1. Scrape fresh articles (Grupa 1). An empty scrape is fine — the tick still runs
-         on whatever is already cached and in-window.
-      2. Ingest: cache features for genuinely new articles only (Grupa 1->2, step 4.5).
-      3. Tick: cached features -> per-variant signals -> appended to the eval log.
-
-    The analyzers and the feature store are built once and SHARED between the ingest
-    (write) and tick (read) halves, so the instrument table and OpenAI client are loaded
-    a single time per tick.
-
-    Returns:
-        None
-    """
-    print("====== [1/3] Scraping real articles (Grupa 1) ======")
+    logger.info("====== [1/3] Scraping real articles (Group 1) ======")
     articles_df = run_real_scrapers()
     if articles_df.empty:
-        print("[INFO] No new articles scraped; running the tick on cached features.")
+        logger.info("No new articles scraped; running the tick on cached features.")
     else:
-        if "source" in articles_df.columns:
-            articles_df.rename(columns={"source": "source_name"}, inplace=True)
-        print(f"[INFO] Scraped {len(articles_df)} article(s).")
-        # Persist the latest scrape for audit/debugging (not the cache of record).
-        articles_df.to_csv(Config["ARTICLES_PATH"], index=False)
+        articles_df = normalize_source_column(articles_df)
+        logger.info(f"Scraped {len(articles_df)} article(s).")
+        articles_df.to_csv(config.paths.input.articles, index=False)
 
-    # One shared stack for both halves of the tick.
     store = FeatureStore()
-    upper = UpperPathAnalyzer(Config["INSTRUMENT_PATH"])
-    lower = LowerPathAnalyzer(Config["INSTRUMENT_PATH"])
+    upper = UpperPathAnalyzer.build_default()
+    lower = LowerPathAnalyzer.build_default()
 
-    # ------------------------------------------------------------- WRITE half
-    print("\n====== [2/3] Ingesting new article features (Grupa 2 -> cache) ======")
+    logger.info("====== [2/3] Ingesting new article features (Group 2 -> cache) ======")
     ingestor = FeatureIngestor(
-        store=store, extractor=TopicExtractor(), upper=upper, lower=lower
+        store=store,
+        extractor=TopicExtractor.build_default(),
+        upper=upper,
+        lower=lower,
     )
     ingestor.ingest(articles_df if not articles_df.empty else pd.DataFrame())
 
-    # -------------------------------------------------------------- READ half
-    print("\n====== [3/3] Scoring variants -> signals (Grupa 3/4 + fusion) ======")
+    logger.info("====== [3/3] Scoring variants -> signals (Group 3/4 + fusion) ======")
     runner = TickRunner(
         store=store,
         upper=upper,
         lower=lower,
-        macro=MacroOverlayAnalyzer(Config["INSTRUMENT_PATH"]),
-        signal=SignalGenerator(),
+        macro=MacroOverlayAnalyzer.build_default(),
+        signal=SignalGenerator.build_default(),
         log=SignalLog(),
     )
     signals = runner.run()
 
     if signals.empty:
-        print(
-            "\n[INFO] Tick produced no signals (feature store window empty). "
+        logger.info(
+            "Tick produced no signals (feature store window empty). "
             "This is expected until a few ticks have populated the store."
         )
     else:
         actionable = signals[signals["signal"] != "NEUTRAL"]
-        print(
-            f"\n[INFO] {len(actionable)} actionable of {len(signals)} signal(s) "
-            f"across {signals['variant'].nunique()} variant(s). Top calls:"
-        )
         cols = ["variant", "instrument", "signal", "confidence", "macro_context"]
-        print(signals.sort_values("confidence", ascending=False)[cols]
-              .head(10).to_string(index=False))
+        top_calls = (
+            signals.sort_values("confidence", ascending=False)[cols]
+            .head(10)
+            .to_string(index=False)
+        )
+        logger.info(
+            f"{len(actionable)} actionable of {len(signals)} signal(s) "
+            f"across {signals['variant'].nunique()} variant(s). Top calls:\n{top_calls}"
+        )
 
-    print("\n====== Tick complete ======")
+    logger.info("====== Tick complete ======")
 
 
 if __name__ == "__main__":
+    setup_logging()
     main()
