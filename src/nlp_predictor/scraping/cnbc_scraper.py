@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from nlp_predictor.config import config
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 
@@ -11,10 +12,7 @@ class CNBCScraper(BaseScraper):
     def __init__(self, history_file: str | None = None) -> None:
         """Initialize CNBC RSS feed URLs and base scraper state."""
         super().__init__(history_file=history_file)
-        self.rss_feeds = [
-            "https://www.cnbc.com/id/19836768/device/rss/rss.html",
-            "https://www.cnbc.com/id/10000664/device/rss/rss.html",
-        ]
+        self.rss_feeds = list(config.hyperparams.scraping.cnbc_rss_feeds)
 
     @staticmethod
     def _is_pro_url(url: str) -> bool:

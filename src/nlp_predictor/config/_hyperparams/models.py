@@ -10,6 +10,7 @@ class ModelsHyperparams(BaseModel):
 
     llm: str
     embedding: str
+    embedding_batch_size: int = 100
     severity_model: str
     max_workers: int = 2
     request_delay: float = 0.2

@@ -24,6 +24,11 @@ def test_backtesting_config_loaded():
     assert config.backtesting.timeframe.end_date == "2025-12-31"
     assert isinstance(config.backtesting.data.market_prices_dir, Path)
     assert "SPY" in config.backtesting.data.macro_tickers
+    assert isinstance(config.paths.historical.xfinlink, Path)
+    assert isinstance(config.paths.historical.news_filtered, Path)
+    assert config.backtesting.alpaca.page_limit == 50
+    assert "sp500" in config.backtesting.xfinlink.indices
+    assert config.backtesting.filtering.min_article_length == 200
 
 
 def test_format_rfc3339():

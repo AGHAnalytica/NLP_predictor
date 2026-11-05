@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from nlp_predictor.backtesting.data.xfinlink_client import XfinlinkClient
+from nlp_predictor.config import config
 
 logger = logging.getLogger("dump_xfinlink")
 
@@ -30,6 +31,9 @@ def format_bytes(size: int) -> str:
 
 def main() -> None:
     """CLI orchestrator to dump all available Xfinlink data for research."""
+    xfl_cfg = config.backtesting.xfinlink
+    default_indices = ",".join(xfl_cfg.indices)
+
     parser = argparse.ArgumentParser(
         description="Comprehensive data dump script for Xfinlink."
     )
@@ -42,13 +46,13 @@ def main() -> None:
     parser.add_argument(
         "--indices",
         type=str,
-        default="sp500,ndx100,djia",
+        default=default_indices,
         help="Comma-separated index list (sp500, ndx100, djia).",
     )
     parser.add_argument(
         "--start-date",
         type=str,
-        default="2015-01-01",
+        default=str(xfl_cfg.start_date),
         help="Start date YYYY-MM-DD for fundamentals/prices.",
     )
     parser.add_argument(
@@ -66,14 +70,14 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="data/historical/xfinlink",
+        default=str(config.paths.historical.xfinlink),
         help="Output directory for cached Parquet files.",
     )
     parser.add_argument(
         "--snapshots-frequency",
         type=str,
         choices=["yearly", "monthly", "none"],
-        default="yearly",
+        default=str(xfl_cfg.snapshots_frequency),
         help="Constituent snapshot cadence (yearly, monthly, none).",
     )
     parser.add_argument(
@@ -133,7 +137,7 @@ def main() -> None:
     parser.add_argument(
         "--delay",
         type=float,
-        default=0.1,
+        default=float(xfl_cfg.request_delay),
         help="Politeness delay in seconds between requests.",
     )
     parser.add_argument(
@@ -150,14 +154,14 @@ def main() -> None:
     )
 
     if args.dump_everything:
-        args.indices = "sp500,ndx100,djia"
+        args.indices = default_indices
         args.include_events = True
         args.include_historical_tickers = True
         args.include_quarterly = True
         args.include_ttm = True
         args.include_insiders = True
         args.include_holdings = True
-        args.snapshots_frequency = "yearly"
+        args.snapshots_frequency = str(xfl_cfg.snapshots_frequency)
         args.skip_existing = True
         if not args.period:
             args.period = "max"
@@ -295,7 +299,7 @@ def main() -> None:
             period=args.period,
             fetch_fundamentals_data=True,
             fundamentals_periods=fundamentals_periods,
-            fundamentals_version="original",
+            fundamentals_version=str(xfl_cfg.fundamentals_version),
             fetch_metrics_data=True,
             metrics_periods=metrics_periods,
             fetch_prices_data=True,

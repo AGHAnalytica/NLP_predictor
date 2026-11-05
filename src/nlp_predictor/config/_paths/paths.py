@@ -20,8 +20,10 @@ class InputPaths(BaseModel):
     """Static reference tables and latest scrape inputs."""
 
     instruments: Path
+    instruments_large: Path = Path("data/instruments/instruments_sample_large.csv")
     topics: Path
     articles: Path
+    articles_large: Path = Path("data/scraping/articles_sample_large.csv")
     weights: Path
 
     @field_validator("*", mode="before")
@@ -34,6 +36,7 @@ class InputPaths(BaseModel):
 class OutputPaths(BaseModel):
     """CSV and Parquet destinations for pipeline analytical outputs."""
 
+    test_results_dir: Path = Path("data/test_results")
     topics_csv: Path
     topics_parquet: Path
     global_trends_csv: Path
@@ -42,6 +45,14 @@ class OutputPaths(BaseModel):
     instrument_trends_parquet: Path
     signals_csv: Path
     signals_parquet: Path
+    topics_large_csv: Path = Path("data/test_results/topics_report_large.csv")
+    global_trends_large_csv: Path = Path(
+        "data/test_results/global_trends_report_large.csv"
+    )
+    instrument_trends_large_csv: Path = Path(
+        "data/test_results/instrument_trends_report_large.csv"
+    )
+    signals_large_csv: Path = Path("data/test_results/signals_report_large.csv")
 
     @field_validator("*", mode="before")
     @classmethod
@@ -82,7 +93,9 @@ class HistoricalPaths(BaseModel):
     news_csv: Path = Path("data/historical/alpaca_news.csv")
     news_parquet: Path = Path("data/historical/alpaca_news.parquet")
     news_clean: Path = Path("data/historical/alpaca_news_clean.parquet")
+    news_filtered: Path = Path("data/historical/alpaca_news_filtered.parquet")
     partitioned_dir: Path = Path("data/historical/alpaca_news_partitioned")
+    xfinlink: Path = Path("data/historical/xfinlink")
 
     @field_validator("*", mode="before")
     @classmethod

@@ -26,7 +26,7 @@ REQUIRED_COLUMNS = ("date", "source_name", "sentiment", "source_weight")
 _MACRO_DEFAULTS: dict[str, float] = {"half_life_hours": 18.0}
 
 
-def _p(params: dict, key: str) -> float:
+def _get_param(params: dict, key: str) -> float:
     """Extract a float hyperparameter from ``params`` with fallback to ``_DEFAULTS``."""
     return float(params.get(key, _DEFAULTS[key]))
 
@@ -60,10 +60,12 @@ def severity_baseline(
     """
     if group.empty:
         return 0.0
-    _, decay_factors = _decay(group, now, _p(params, "half_life_hours"))
+    _, decay_factors = _decay(group, now, _get_param(params, "half_life_hours"))
     raw = group["source_weight"] * group["sentiment"] * decay_factors
     total = float(raw.sum())
-    return float(np.clip(math.tanh(_p(params, "kappa_scale") * total), -1.0, 1.0))
+    return float(
+        np.clip(math.tanh(_get_param(params, "kappa_scale") * total), -1.0, 1.0)
+    )
 
 
 def severity_dcim(
@@ -99,7 +101,9 @@ def severity_dcim(
         return 0.0
 
     # Phase 1: Per-article decayed impact
-    time_diffs, decay_factors = _decay(group, now, _p(params, "half_life_hours"))
+    time_diffs, decay_factors = _decay(
+        group, now, _get_param(params, "half_life_hours")
+    )
     raw_impacts = group["source_weight"] * group["sentiment"] * decay_factors
 
     temp_df = group.assign(raw_impact=raw_impacts).sort_values(
@@ -107,7 +111,7 @@ def severity_dcim(
     )
 
     # Phase 2: Per-source echo-chamber penalty
-    beta = _p(params, "beta_penalty")
+    beta = _get_param(params, "beta_penalty")
     source_impacts: list[float] = []
     for _, s_group in temp_df.groupby("source_name", sort=False):
         impacts_arr = s_group["raw_impact"].to_numpy()
@@ -136,20 +140,20 @@ def severity_dcim(
     if u_total >= 2:
         global_sign = np.sign(total_impact_sum)
         u_agree = int(np.sum(np.sign(source_impacts_arr) == global_sign))
-        consensus = 1.0 + _p(params, "gamma_consensus") * (u_agree / u_total)
+        consensus = 1.0 + _get_param(params, "gamma_consensus") * (u_agree / u_total)
     else:
         consensus = 1.0
 
     # Phase 4: Breaking-news velocity
     n_total = len(group)
-    n_recent = int(np.sum(time_diffs <= _p(params, "recent_window_hours")))
+    n_recent = int(np.sum(time_diffs <= _get_param(params, "recent_window_hours")))
     velocity = n_recent / (n_total + 1.0)
 
     # Phase 5: Scale and squash
     inside_tanh = (
-        _p(params, "kappa_scale")
+        _get_param(params, "kappa_scale")
         * consensus
-        * (1.0 + _p(params, "delta_velocity") * velocity)
+        * (1.0 + _get_param(params, "delta_velocity") * velocity)
         * total_impact_sum
     )
     return float(np.clip(math.tanh(inside_tanh), -1.0, 1.0))
@@ -180,7 +184,7 @@ def severity_abnormal_volume(
     if group.empty:
         return 0.0
 
-    _, decay_factors = _decay(group, now, _p(params, "half_life_hours"))
+    _, decay_factors = _decay(group, now, _get_param(params, "half_life_hours"))
     net = float((group["source_weight"] * group["sentiment"] * decay_factors).sum())
     direction = float(np.sign(net))
     if direction == 0.0:
@@ -189,7 +193,7 @@ def severity_abnormal_volume(
     count = float(len(group))
     baseline = max(float((context or {}).get("baseline_count", 1.0)), 1e-9)
     excess = max(0.0, count / baseline - 1.0)
-    magnitude = math.tanh(_p(params, "kappa_scale") * excess)
+    magnitude = math.tanh(_get_param(params, "kappa_scale") * excess)
     return float(np.clip(direction * magnitude, -1.0, 1.0))
 
 

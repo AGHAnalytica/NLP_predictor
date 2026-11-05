@@ -9,11 +9,14 @@ from datetime import UTC, datetime
 import dateparser
 import trafilatura
 
+from nlp_predictor.config import config
+
 logger = logging.getLogger(__name__)
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _NON_ALNUM_RE = re.compile(r"\W+")
-MIN_ARTICLE_LENGTH = 200
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+MIN_ARTICLE_LENGTH = int(config.hyperparams.scraping.min_article_length)
 
 
 def normalize_date_to_utc(raw_date_str: str) -> datetime | None:
@@ -72,6 +75,21 @@ def clean_html_content(raw_html: str) -> str:
     if not text:
         return ""
     return normalize_plain_text(text)
+
+
+def strip_html_fragments(raw_html: str) -> str:
+    """Fast regex-based HTML tag stripper for pre-extracted HTML snippets/fragments.
+
+    Args:
+        raw_html: HTML fragment or plain text string.
+
+    Returns:
+        Normalized plain text without HTML tags.
+    """
+    if not raw_html or not isinstance(raw_html, str):
+        return ""
+    stripped = _HTML_TAG_RE.sub(" ", raw_html)
+    return normalize_plain_text(stripped)
 
 
 def is_valid_article(clean_text: str, min_length: int = MIN_ARTICLE_LENGTH) -> bool:

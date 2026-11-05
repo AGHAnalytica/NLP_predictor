@@ -80,8 +80,8 @@ class AlpacaNewsFetcher:
         self,
         start_date: str | None = None,
         end_date: str | None = None,
-        max_articles: int = 1_000_000,
-        batch_flush_size: int = 5_000,
+        max_articles: int | None = None,
+        batch_flush_size: int | None = None,
     ) -> int:
         """
         Fetch historical news articles from the Alpaca API and stream to Parquet files.
@@ -102,8 +102,19 @@ class AlpacaNewsFetcher:
             ValueError: If Alpaca API credentials are not found in the environment.
             RequestException: If API requests fail persistently after maximum retries.
         """
+        alpaca_cfg = config.backtesting.alpaca
         start_date = start_date or config.backtesting.timeframe.start_date
         end_date = end_date or config.backtesting.timeframe.end_date
+        max_articles = (
+            int(max_articles)
+            if max_articles is not None
+            else int(alpaca_cfg.max_articles)
+        )
+        batch_flush_size = (
+            int(batch_flush_size)
+            if batch_flush_size is not None
+            else int(alpaca_cfg.batch_flush_size)
+        )
 
         start_rfc = _format_rfc3339(start_date, is_end=False)
         end_rfc = _format_rfc3339(end_date, is_end=True)
@@ -116,7 +127,7 @@ class AlpacaNewsFetcher:
                 "Missing ALPACA_API_KEY_ID or ALPACA_API_SECRET_KEY in environment."
             )
 
-        url = "https://data.alpaca.markets/v1beta1/news"
+        url = str(alpaca_cfg.api_url)
         headers = {
             "APCA-API-KEY-ID": api_key,
             "APCA-API-SECRET-KEY": api_secret,
@@ -125,7 +136,7 @@ class AlpacaNewsFetcher:
             "start": start_rfc,
             "end": end_rfc,
             "sort": "asc",
-            "limit": 50,
+            "limit": int(alpaca_cfg.page_limit),
             "include_content": True,
             "exclude_contentless": True,
         }
@@ -133,7 +144,9 @@ class AlpacaNewsFetcher:
         collected_records: list[dict] = []
         page_token: str | None = None
         total_fetched = 0
-        max_retries = 5
+        max_retries = int(alpaca_cfg.max_retries)
+        req_timeout = int(alpaca_cfg.request_timeout)
+        req_delay = float(alpaca_cfg.request_delay)
 
         logger.info(f"Starting historical fetch: {start_rfc} to {end_rfc}")
 
@@ -145,7 +158,7 @@ class AlpacaNewsFetcher:
             for attempt in range(1, max_retries + 1):
                 try:
                     response = requests.get(
-                        url, headers=headers, params=params, timeout=30
+                        url, headers=headers, params=params, timeout=req_timeout
                     )
 
                     if response.status_code == 429:
@@ -219,7 +232,8 @@ class AlpacaNewsFetcher:
                 logger.info("Pagination complete: next_page_token is null.")
                 break
 
-            time.sleep(0.1)
+            if req_delay > 0:
+                time.sleep(req_delay)
 
         # Flush any remaining items in the buffer
         if collected_records:
@@ -236,8 +250,8 @@ AlpacaHistoricalFetcher = AlpacaNewsFetcher
 def fetch_alpaca_historical_news(
     start_date: str | None = None,
     end_date: str | None = None,
-    max_articles: int = 1_000_000,
-    batch_flush_size: int = 5_000,
+    max_articles: int | None = None,
+    batch_flush_size: int | None = None,
     output_dir: str = DEFAULT_OUTPUT_DIR,
 ) -> int:
     """

@@ -49,7 +49,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
         if not texts:
             return []
 
-        chunk_size = 100
+        chunk_size = int(config.hyperparams.models.embedding_batch_size)
         embeddings: list[list[float]] = []
         model_name = str(config.hyperparams.models.embedding)
         for i in range(0, len(texts), chunk_size):

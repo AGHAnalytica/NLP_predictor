@@ -9,6 +9,7 @@ from nlp_predictor.preprocessing.clean_data import (
     generate_doc_hash,
     is_valid_article,
     normalize_date_to_utc,
+    strip_html_fragments,
 )
 
 
@@ -76,3 +77,10 @@ def test_normalize_date_to_utc():
     # 3. Timezone conversion (+02:00 -> UTC)
     d2 = normalize_date_to_utc("2026-06-04 14:00:00+02:00")
     assert d2 == datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
+
+
+def test_strip_html_fragments():
+    assert strip_html_fragments("") == ""
+    assert strip_html_fragments(None) == ""
+    snippet = '<p>Shares of <a href="/stock/AAPL#">Apple</a> jumped 5%.</p>'
+    assert strip_html_fragments(snippet) == "Shares of Apple jumped 5%."

@@ -15,42 +15,8 @@ from nlp_predictor.config import config
 
 logger = logging.getLogger(__name__)
 
-# Standard macroeconomic ETF proxies for broad market regimes
-DEFAULT_MACRO_TICKERS = [
-    # Broad US Market
-    "SPY",
-    "QQQ",
-    "DIA",
-    "IWM",
-    # Global & Emerging Markets
-    "EFA",
-    "EEM",
-    "FXI",
-    "EWJ",
-    "VGK",
-    # Fixed Income & Credit Risk
-    "TLT",
-    "IEF",
-    "LQD",
-    "HYG",
-    "BND",
-    # Commodities & Inflation
-    "GLD",
-    "SLV",
-    "USO",
-    "DBC",
-    "DBA",
-    # Key Economic Sectors
-    "XLF",
-    "XLE",
-    "XLK",
-    "XLV",
-    "XRT",
-    "VNQ",
-    # Volatility
-    "VXX",
-    "VIXY",
-]
+# Standard macroeconomic ETF proxies loaded from configuration
+DEFAULT_MACRO_TICKERS: list[str] = list(config.backtesting.data.macro_tickers)
 
 
 def _shift_exclusive_end_date(end_date: str | None) -> str | None:
@@ -154,7 +120,7 @@ class YahooPriceFetcher:
         tickers: Sequence[str] | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        delay_seconds: float = 0.2,
+        delay_seconds: float | None = None,
         overwrite: bool = False,
     ) -> dict[str, pd.DataFrame]:
         """
@@ -174,6 +140,11 @@ class YahooPriceFetcher:
             tickers = config.backtesting.data.macro_tickers or DEFAULT_MACRO_TICKERS
         start_date = start_date or config.backtesting.timeframe.start_date
         end_date = end_date or config.backtesting.timeframe.end_date
+        delay = (
+            float(delay_seconds)
+            if delay_seconds is not None
+            else float(config.backtesting.data.price_fetch_delay)
+        )
 
         results: dict[str, pd.DataFrame] = {}
         for idx, ticker in enumerate(tickers):
@@ -188,8 +159,8 @@ class YahooPriceFetcher:
             )
             if not df.empty:
                 results[cleaned_ticker] = df
-            if delay_seconds > 0 and idx < len(tickers) - 1:
-                time.sleep(delay_seconds)
+            if delay > 0 and idx < len(tickers) - 1:
+                time.sleep(delay)
         return results
 
 

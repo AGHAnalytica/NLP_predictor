@@ -2,12 +2,31 @@ hyperparams:
   models:
     llm: "gpt-5-nano"
     embedding: "text-embedding-3-small"
+    embedding_batch_size: 100
     severity_model: "dcim"
     max_workers: 2
     request_delay: 0.2
     retry_attempts: 12
     retry_min_wait: 4.0
     retry_max_wait: 60.0
+
+  scraping:
+    min_article_length: 200
+    history_retention_hours: 4.0
+    fetch_delay: 0.5
+    max_concurrent: 15
+    request_timeout: 15
+    user_agent: "AGH_Analytica_scraper/1.0 (contact: agh_analytica@gmail.com)"
+    apnews_base_url: "https://apnews.com"
+    apnews_hub_urls:
+      - "https://apnews.com/hub/business"
+      - "https://apnews.com/hub/climate-and-environment"
+    bbc_rss_feeds:
+      - "http://feeds.bbci.co.uk/news/business/rss.xml"
+      - "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
+    cnbc_rss_feeds:
+      - "https://www.cnbc.com/id/19836768/device/rss/rss.html"
+      - "https://www.cnbc.com/id/10000664/device/rss/rss.html"
 
   lower_path:
     severity_threshold: 2
@@ -37,3 +56,4 @@ hyperparams:
     veto_coverage: 0.5
     veto_strength_cap: 0.4
     macro_conviction_scale: 4.0
+

@@ -15,7 +15,11 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from nlp_predictor.preprocessing.clean_data import clean_html_content, generate_doc_hash
+from nlp_predictor.config import config
+from nlp_predictor.preprocessing.clean_data import (
+    generate_doc_hash,
+    strip_html_fragments,
+)
 
 logger = logging.getLogger("filter_news")
 
@@ -66,7 +70,8 @@ def is_spam_title(title: str | None) -> bool:
 
 def is_macro_event(title: str, content: str) -> bool:
     """Detect if title or lead content mentions key macroeconomic indicators."""
-    text = f"{title} {content[:600]}"
+    lead_chars = int(config.backtesting.filtering.macro_lead_chars)
+    text = f"{title} {content[:lead_chars]}"
     return any(p.search(text) for p in MACRO_PATTERNS)
 
 
@@ -85,7 +90,8 @@ def load_universe_tickers(instruments_path: Path | None = None) -> set[str]:
     tickers: set[str] = set()
 
     # Load S&P 500 constituents if available
-    sp_path = Path("data/historical/xfinlink/constituents_sp500_latest.parquet")
+    sp_file = str(config.backtesting.filtering.sp500_constituents_file)
+    sp_path = config.paths.historical.xfinlink / sp_file
     if sp_path.exists():
         try:
             sp_df = pd.read_parquet(sp_path)
@@ -97,7 +103,7 @@ def load_universe_tickers(instruments_path: Path | None = None) -> set[str]:
     inst_csv = (
         instruments_path
         if instruments_path and instruments_path.exists()
-        else Path("data/instruments/instruments_sample_large.csv")
+        else config.paths.input.instruments_large
     )
     if inst_csv.exists():
         try:
@@ -107,44 +113,19 @@ def load_universe_tickers(instruments_path: Path | None = None) -> set[str]:
         except Exception as e:
             logger.warning(f"Could not load instruments from {inst_csv}: {e}")
 
-    # Fallback to key ETFs if nothing found
+    # Fallback to configured macro ETFs if nothing found
     if not tickers:
-        tickers = {"AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ"}
+        tickers = set(config.backtesting.data.macro_tickers)
 
     return tickers
 
 
-def print_cost_summary(num_articles: int) -> None:
-    """Print estimated LLM inference costs for processed articles."""
-    # Assumptions: ~400 input tokens, ~120 output tokens per article
-    in_tokens = num_articles * 400
-    out_tokens = num_articles * 120
-
-    # Pricing per 1M tokens (Nov 2024 rates)
-    # GPT-4o: $2.50 in, $10.00 out
-    cost_4o = (in_tokens / 1_000_000 * 2.50) + (out_tokens / 1_000_000 * 10.00)
-    # GPT-4o-mini: $0.15 in, $0.60 out
-    cost_mini = (in_tokens / 1_000_000 * 0.15) + (out_tokens / 1_000_000 * 0.60)
-    # Batch API is exactly 50% discount
-    cost_batch = cost_mini * 0.50
-
-    logger.info("=" * 60)
-    logger.info(f"ESTIMATED LLM INFERENCE COSTS ({num_articles:,} articles):")
-    logger.info(f"  • GPT-4o (Standard API):       ${cost_4o:,.2f}")
-    logger.info(f"  • GPT-4o-mini (Standard API):  ${cost_mini:,.2f}")
-    logger.info(
-        f"  • GPT-4o-mini (Batch API -50%): ${cost_batch:,.2f} "
-        f"(~{cost_batch * 4.0:.1f} PLN)"
-    )
-    logger.info("=" * 60)
-
-
 def filter_dataset(
-    input_dir: Path,
-    output_path: Path,
+    input_dir: Path | None = None,
+    output_path: Path | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    min_length: int = 200,
+    min_length: int | None = None,
     instruments_path: Path | None = None,
 ) -> pd.DataFrame:
     """Filter historical news files and save high-signal articles as Parquet.
@@ -160,6 +141,13 @@ def filter_dataset(
     Returns:
         Filtered DataFrame of high-signal articles.
     """
+    input_dir = input_dir or config.paths.historical.partitioned_dir
+    output_path = output_path or config.paths.historical.news_filtered
+    min_len = (
+        int(min_length)
+        if min_length is not None
+        else int(config.backtesting.filtering.min_article_length)
+    )
     parquet_files = sorted(glob.glob(f"{input_dir}/**/*.parquet", recursive=True))
     if not parquet_files:
         logger.error(f"No parquet files found in {input_dir}")
@@ -199,21 +187,23 @@ def filter_dataset(
 
     # Stage 3: Clean HTML and Length check
     logger.info("Checking clean content length...")
-    # Fast HTML tag stripping / clean
-    df["content_clean"] = df["content"].astype(str).apply(clean_html_content)
-    mask_short = df["content_clean"].str.len() < min_length
+    df["content_clean"] = df["content"].astype(str).apply(strip_html_fragments)
+    mask_short = df["content_clean"].str.len() < min_len
     short_dropped = mask_short.sum()
     df = df[~mask_short].copy()
-    logger.info(f"Short articles (<{min_length} chars) dropped: {short_dropped:,}")
+    logger.info(f"Short articles (<{min_len} chars) dropped: {short_dropped:,}")
 
     # Stage 4: Universe & Macro Event Relevance
     logger.info("Matching articles against universe tickers and macro topics...")
     explicit_tickers = df["content"].apply(extract_explicit_tickers)
     has_target = explicit_tickers.apply(lambda s: bool(s & target_tickers))
-    is_macro = [
-        is_macro_event(t, c)
-        for t, c in zip(df["title"], df["content_clean"], strict=False)
-    ]
+    is_macro = pd.Series(
+        [
+            is_macro_event(t, c)
+            for t, c in zip(df["title"], df["content_clean"], strict=False)
+        ],
+        index=df.index,
+    )
     mask_relevant = has_target | is_macro
     irrelevant_dropped = (~mask_relevant).sum()
     df = df[mask_relevant].copy()
@@ -246,7 +236,6 @@ def filter_dataset(
     )
     logger.info(f"Saved clean filtered Parquet to: {output_path}")
 
-    print_cost_summary(final_count)
     return df
 
 
@@ -258,13 +247,13 @@ def main() -> None:
     parser.add_argument(
         "--input-dir",
         type=str,
-        default="data/historical/alpaca_news_partitioned",
+        default=str(config.paths.historical.partitioned_dir),
         help="Path to partitioned Parquet directory.",
     )
     parser.add_argument(
         "--output-path",
         type=str,
-        default="data/historical/alpaca_news_filtered.parquet",
+        default=str(config.paths.historical.news_filtered),
         help="Output filtered Parquet file destination.",
     )
     parser.add_argument(
@@ -282,13 +271,13 @@ def main() -> None:
     parser.add_argument(
         "--min-length",
         type=int,
-        default=200,
+        default=int(config.backtesting.filtering.min_article_length),
         help="Minimum character count for article content.",
     )
     parser.add_argument(
         "--instruments",
         type=str,
-        default="data/instruments/instruments_sample_large.csv",
+        default=str(config.paths.input.instruments_large),
         help="Path to instruments universe CSV.",
     )
 

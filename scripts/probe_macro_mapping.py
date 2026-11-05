@@ -16,6 +16,7 @@ for this one (shared, once-per-tick) call.
 Run:  uv run python scripts/probe_macro_mapping.py
 """
 
+import logging
 import os
 import re
 
@@ -27,6 +28,8 @@ from nlp_predictor.config import config
 from nlp_predictor.prompts import PROMPTS
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 # Instruments flagged as the "hard" regime-dependent subset (havens / FX / rates).
 HARD = {"GLD", "US10Y", "DXY", "EURUSD"}
@@ -116,11 +119,10 @@ _MINIMAL_PROMPT = re.sub(
     r"Guidance:.*?(?=\n\s*CLIMATE:)", "", _CANONICAL_PROMPT, flags=re.DOTALL
 )
 
-_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-
-def _call(prompt: str) -> MacroMapping:
-    resp = _client.beta.chat.completions.parse(
+def _call(client: OpenAI, prompt: str) -> MacroMapping:
+    """Query the configured LLM with the MacroMapping schema."""
+    resp = client.beta.chat.completions.parse(
         model=str(config.hyperparams.models.llm),
         messages=[{"role": "user", "content": prompt}],
         response_format=MacroMapping,
@@ -128,10 +130,11 @@ def _call(prompt: str) -> MacroMapping:
     return resp.choices[0].message.parsed  # type: ignore
 
 
-def _run_mode(guided: bool) -> None:
+def _run_mode(client: OpenAI, guided: bool) -> None:
+    """Evaluate all macro climate scenarios in either GUIDED or MINIMAL mode."""
     label = "GUIDED" if guided else "MINIMAL"
     model_name = config.hyperparams.models.llm
-    print(f"\n{'=' * 70}\n  MODE: {label}  (model: {model_name})\n{'=' * 70}")
+    logger.info(f"\n{'=' * 70}\n  MODE: {label}  (model: {model_name})\n{'=' * 70}")
 
     total = hits = hard_total = hard_hits = 0
     misses: list[str] = []
@@ -147,9 +150,9 @@ def _run_mode(guided: bool) -> None:
             instruments=instruments_block,
         )
         try:
-            parsed = _call(prompt)
+            parsed = _call(client, prompt)
         except Exception as e:  # noqa: BLE001
-            print(f"[ERROR] {scn['name']}: {e}")
+            logger.error(f"[ERROR] {scn['name']}: {e}")
             continue
 
         pred = {
@@ -157,7 +160,7 @@ def _run_mode(guided: bool) -> None:
             for e in parsed.effects
         }
 
-        print(f"\n-- {scn['name']} --")
+        logger.info(f"-- {scn['name']} --")
         for ticker, _name, acceptable in scn["instruments"]:
             got = pred.get(ticker.upper())
             effect = got[0] if got else "<missing>"
@@ -169,7 +172,7 @@ def _run_mode(guided: bool) -> None:
                 hard_hits += int(ok)
             mark = "OK " if ok else "XX "
             exp = "/".join(sorted(acceptable))
-            print(f"  {mark}{ticker:7s} got={effect:9s} exp={exp}")
+            logger.info(f"  {mark}{ticker:7s} got={effect:9s} exp={exp}")
             if not ok:
                 why = got[2] if got else "(no answer returned)"
                 misses.append(
@@ -179,21 +182,26 @@ def _run_mode(guided: bool) -> None:
 
     acc = hits / total * 100 if total else 0
     hard_acc = hard_hits / hard_total * 100 if hard_total else 0
-    print(
-        f"\n  {label} overall: {hits}/{total} = {acc:.0f}%   "
+    logger.info(
+        f"  {label} overall: {hits}/{total} = {acc:.0f}%   "
         f"| HARD (havens/FX/rates): {hard_hits}/{hard_total} = {hard_acc:.0f}%"
     )
     if misses:
-        print("  Misses:")
+        logger.info("  Misses:")
         for m in misses:
-            print(m)
+            logger.info(m)
 
 
 if __name__ == "__main__":
-    print("====== Macro -> instrument mapping probe ======")
-    _run_mode(guided=False)
-    _run_mode(guided=True)
-    print(
-        "\nRule of thumb: if GUIDED overall >= ~85% and HARD >= ~70%, nano is adequate "
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+    )
+    openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    logger.info("====== Macro -> instrument mapping probe ======")
+    _run_mode(openai_client, guided=False)
+    _run_mode(openai_client, guided=True)
+    logger.info(
+        "Rule of thumb: if GUIDED overall >= ~85% and HARD >= ~70%, nano is adequate "
         "for this (shared, once-per-tick) call. Otherwise upgrade the model for it."
     )

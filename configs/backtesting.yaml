@@ -5,6 +5,7 @@ backtesting:
 
   data:
     market_prices_dir: "data/historical/market_prices"
+    price_fetch_delay: 0.2
     macro_tickers:
       # Broad US Market
       - "SPY"
@@ -39,4 +40,37 @@ backtesting:
       # Volatility
       - "VXX"
       - "VIXY"
+
+  alpaca:
+    api_url: "https://data.alpaca.markets/v1beta1/news"
+    max_articles: 1000000
+    batch_flush_size: 5000
+    page_limit: 50
+    max_retries: 5
+    request_timeout: 30
+    request_delay: 0.1
+
+  xfinlink:
+    indices:
+      - "sp500"
+      - "ndx100"
+      - "djia"
+    start_date: "2015-01-01"
+    snapshots_frequency: "yearly"
+    fundamentals_periods:
+      - "annual"
+      - "quarterly"
+    fundamentals_version: "original"
+    metrics_periods:
+      - "annual"
+      - "quarterly"
+      - "ttm"
+    request_delay: 0.1
+    events_page_limit: 1000
+
+  filtering:
+    min_article_length: 200
+    macro_lead_chars: 600
+    sp500_constituents_file: "constituents_sp500_latest.parquet"
+
 

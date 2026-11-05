@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 import pandas as pd
 from bs4 import BeautifulSoup  # type: ignore
 
+from nlp_predictor.config import config
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -19,11 +20,8 @@ class APNewsScraper(BaseScraper):
     def __init__(self, history_file: str | None = None) -> None:
         """Initialize AP News hub URLs and base scraper state."""
         super().__init__(history_file=history_file)
-        self.base_url = "https://apnews.com"
-        self.hub_urls = [
-            "https://apnews.com/hub/business",
-            "https://apnews.com/hub/climate-and-environment",
-        ]
+        self.base_url = str(config.hyperparams.scraping.apnews_base_url)
+        self.hub_urls = list(config.hyperparams.scraping.apnews_hub_urls)
 
     def run(self) -> pd.DataFrame:
         """Discover article links across AP hubs, fetch HTML concurrently, and clean
@@ -59,7 +57,9 @@ class APNewsScraper(BaseScraper):
 
         logger.info(f"Starting concurrent fetching for {len(urls_to_fetch)} URLs...")
         html_results = asyncio.run(
-            self.fetch_urls_concurrently(urls_to_fetch, max_concurrent=15)
+            self.fetch_urls_concurrently(
+                urls_to_fetch, max_concurrent=self.max_concurrent
+            )
         )
 
         for article_url, article_html in html_results:

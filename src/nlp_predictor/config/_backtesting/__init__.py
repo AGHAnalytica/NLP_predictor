@@ -1,3 +1,17 @@
-from .backtesting import BacktestingConfig, BacktestingDataConfig, TimeframeConfig
+from .backtesting import (
+    AlpacaConfig,
+    BacktestingConfig,
+    BacktestingDataConfig,
+    NewsFilteringConfig,
+    TimeframeConfig,
+    XfinlinkConfig,
+)
 
-__all__ = ["BacktestingConfig", "BacktestingDataConfig", "TimeframeConfig"]
+__all__ = [
+    "AlpacaConfig",
+    "BacktestingConfig",
+    "BacktestingDataConfig",
+    "NewsFilteringConfig",
+    "TimeframeConfig",
+    "XfinlinkConfig",
+]

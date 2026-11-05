@@ -44,13 +44,13 @@ class BaseScraper(ABC):
 
     ARTICLE_COLUMNS = ["doc_hash", "source", "url", "date", "title", "content"]
     HISTORY_COLUMNS = ["doc_hash", "url", "scraped_at"]
-    HISTORY_RETENTION_HOURS = 4
+    HISTORY_RETENTION_HOURS = float(config.hyperparams.scraping.history_retention_hours)
 
     def __init__(
         self,
         history_file: str | None = None,
         min_content_length: int = MIN_ARTICLE_LENGTH,
-        fetch_delay: float = 0.5,
+        fetch_delay: float | None = None,
     ) -> None:
         """Initialize the scraper session and load deduplication history.
 
@@ -59,18 +59,23 @@ class BaseScraper(ABC):
             min_content_length: Minimum cleaned character count to accept an item.
             fetch_delay: Polite delay in seconds before synchronous HTTP requests.
         """
+        scraping_cfg = config.hyperparams.scraping
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "User-Agent": (
-                    "AGH_Analytica_scraper/1.0 (contact: agh_analytica@gmail.com)"
-                ),
+                "User-Agent": str(scraping_cfg.user_agent),
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )
         self.history_file = history_file or str(config.paths.cache.scraped_history)
         self.min_content_length = min_content_length
-        self.fetch_delay = fetch_delay
+        self.fetch_delay = (
+            float(fetch_delay)
+            if fetch_delay is not None
+            else float(scraping_cfg.fetch_delay)
+        )
+        self.request_timeout = int(scraping_cfg.request_timeout)
+        self.max_concurrent = int(scraping_cfg.max_concurrent)
 
         self.history_df = self._load_history()
         self._cleanup_old_history()
@@ -165,7 +170,7 @@ class BaseScraper(ABC):
             time.sleep(self.fetch_delay)
 
         try:
-            response = self.session.get(url, timeout=15)
+            response = self.session.get(url, timeout=self.request_timeout)
             if response.status_code in (403, 429):
                 logger.warning(
                     f"Access blocked for {url} (Status: {response.status_code}). "
@@ -180,7 +185,7 @@ class BaseScraper(ABC):
             return None
 
     async def fetch_urls_concurrently(
-        self, urls: Sequence[str], max_concurrent: int = 15
+        self, urls: Sequence[str], max_concurrent: int | None = None
     ) -> list[tuple[str, str]]:
         """Fetch multiple URLs concurrently using ``aiohttp`` and a semaphore.
 
@@ -191,7 +196,10 @@ class BaseScraper(ABC):
         Returns:
             List of ``(url, response_text)`` tuples (empty string on failure).
         """
-        semaphore = asyncio.Semaphore(max_concurrent)
+        limit = (
+            int(max_concurrent) if max_concurrent is not None else self.max_concurrent
+        )
+        semaphore = asyncio.Semaphore(limit)
         async_headers = dict(self.session.headers)
 
         async with aiohttp.ClientSession(headers=async_headers) as async_session:
@@ -199,7 +207,9 @@ class BaseScraper(ABC):
             async def fetch(url: str) -> tuple[str, str]:
                 async with semaphore:
                     try:
-                        async with async_session.get(url, timeout=15) as response:
+                        async with async_session.get(
+                            url, timeout=self.request_timeout
+                        ) as response:
                             if response.status in (403, 429):
                                 logger.warning(
                                     f"Async access blocked for {url}. "
@@ -300,7 +310,7 @@ class BaseScraper(ABC):
         rss_feeds: Sequence[str],
         source_name: str,
         skip_url: Callable[[str], bool] | None = None,
-        max_concurrent: int = 15,
+        max_concurrent: int | None = None,
     ) -> pd.DataFrame:
         """Fetch RSS feeds, filter unseen article links, and scrape full HTML
         concurrently.

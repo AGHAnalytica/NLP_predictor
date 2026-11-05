@@ -15,6 +15,8 @@ from typing import Any
 import pandas as pd
 import xfinlink as xfl
 
+from nlp_predictor.config import config
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +51,7 @@ class XfinlinkClient:
             xfl.set_api_key(self.api_key)
 
         if output_dir is None:
-            output_dir = Path("data/historical/xfinlink")
+            output_dir = config.paths.historical.xfinlink
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,7 +134,7 @@ class XfinlinkClient:
         )
         all_events: list[pd.DataFrame] = []
         offset = 0
-        limit = 1000
+        limit = int(config.backtesting.xfinlink.events_page_limit)
 
         while True:
             batch = xfl.index_events(
@@ -473,15 +475,15 @@ class XfinlinkClient:
         end_date: str | None = None,
         period: str | None = None,
         fetch_fundamentals_data: bool = True,
-        fundamentals_periods: Sequence[str] | str = ("annual",),
-        fundamentals_version: str = "original",
+        fundamentals_periods: Sequence[str] | str | None = None,
+        fundamentals_version: str | None = None,
         fetch_metrics_data: bool = True,
-        metrics_periods: Sequence[str] | str = ("annual",),
+        metrics_periods: Sequence[str] | str | None = None,
         fetch_prices_data: bool = True,
         fetch_insiders_data: bool = False,
         fetch_holdings_data: bool = False,
         skip_existing: bool = True,
-        delay_seconds: float = 0.1,
+        delay_seconds: float | None = None,
     ) -> dict[str, int]:
         """Dump comprehensive data (fundamentals, metrics, prices) for tickers.
 
@@ -516,15 +518,27 @@ class XfinlinkClient:
         }
         total = len(tickers)
 
-        if isinstance(fundamentals_periods, str):
+        xfl_cfg = config.backtesting.xfinlink
+        if fundamentals_periods is None:
+            f_periods = list(xfl_cfg.fundamentals_periods)
+        elif isinstance(fundamentals_periods, str):
             f_periods = [fundamentals_periods]
         else:
             f_periods = list(fundamentals_periods)
 
-        if isinstance(metrics_periods, str):
+        if metrics_periods is None:
+            m_periods = list(xfl_cfg.metrics_periods)
+        elif isinstance(metrics_periods, str):
             m_periods = [metrics_periods]
         else:
             m_periods = list(metrics_periods)
+
+        version = fundamentals_version or xfl_cfg.fundamentals_version
+        delay = (
+            float(delay_seconds)
+            if delay_seconds is not None
+            else float(xfl_cfg.request_delay)
+        )
 
         for i, ticker in enumerate(tickers, start=1):
             sym = ticker.strip().upper()
@@ -532,8 +546,7 @@ class XfinlinkClient:
             if fetch_fundamentals_data:
                 for fp in f_periods:
                     dest = (
-                        self.output_dir
-                        / f"fundamentals_{sym}_{fp}_{fundamentals_version}.parquet"
+                        self.output_dir / f"fundamentals_{sym}_{fp}_{version}.parquet"
                     )
                     if skip_existing and dest.exists() and dest.stat().st_size > 0:
                         stats["fundamentals"] += 1
@@ -548,7 +561,7 @@ class XfinlinkClient:
                             end_date=end_date,
                             period=period,
                             period_type=fp,
-                            version=fundamentals_version,
+                            version=version,
                             save=True,
                             skip_existing=skip_existing,
                         )
@@ -558,8 +571,8 @@ class XfinlinkClient:
                         logger.error(
                             f"Error fetching fundamentals ({fp}) for {sym}: {e}"
                         )
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                    if delay > 0:
+                        time.sleep(delay)
 
             if fetch_metrics_data:
                 for mp in m_periods:
@@ -582,8 +595,8 @@ class XfinlinkClient:
                             stats["metrics"] += 1
                     except Exception as e:
                         logger.error(f"Error fetching metrics ({mp}) for {sym}: {e}")
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                    if delay > 0:
+                        time.sleep(delay)
 
             if fetch_prices_data:
                 dest = self.output_dir / f"prices_{sym}_daily.parquet"
@@ -604,8 +617,8 @@ class XfinlinkClient:
                             stats["prices"] += 1
                     except Exception as e:
                         logger.error(f"Error fetching prices for {sym}: {e}")
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                    if delay > 0:
+                        time.sleep(delay)
 
             if fetch_insiders_data:
                 dest = self.output_dir / f"insiders_{sym}.parquet"
@@ -626,8 +639,8 @@ class XfinlinkClient:
                             stats["insiders"] += 1
                     except Exception as e:
                         logger.error(f"Error fetching insiders for {sym}: {e}")
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                    if delay > 0:
+                        time.sleep(delay)
 
             if fetch_holdings_data:
                 dest = self.output_dir / f"holdings_{sym}.parquet"
@@ -648,8 +661,8 @@ class XfinlinkClient:
                             stats["holdings"] += 1
                     except Exception as e:
                         logger.error(f"Error fetching holdings for {sym}: {e}")
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                    if delay > 0:
+                        time.sleep(delay)
 
         logger.info(f"Xfinlink universe dump finished: {stats}")
         return stats

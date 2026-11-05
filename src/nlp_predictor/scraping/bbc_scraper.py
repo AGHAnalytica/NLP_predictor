@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from nlp_predictor.config import config
 from nlp_predictor.scraping.base_scraper import BaseScraper
 
 
@@ -11,10 +12,7 @@ class BBCScraper(BaseScraper):
     def __init__(self, history_file: str | None = None) -> None:
         """Initialize BBC RSS feed URLs and base scraper state."""
         super().__init__(history_file=history_file)
-        self.rss_feeds = [
-            "http://feeds.bbci.co.uk/news/business/rss.xml",
-            "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-        ]
+        self.rss_feeds = list(config.hyperparams.scraping.bbc_rss_feeds)
 
     @staticmethod
     def _is_media_url(url: str) -> bool:
