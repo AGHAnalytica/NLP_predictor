@@ -6,6 +6,8 @@ from .clean_data import (
     is_valid_article,
     normalize_date_to_utc,
     normalize_plain_text,
+    normalize_source_column,
+    strip_html_fragments,
 )
 from .feature_ingestor import FeatureIngestor
 from .feature_store import FeatureStore
@@ -23,4 +25,6 @@ __all__ = [
     "is_valid_article",
     "normalize_date_to_utc",
     "normalize_plain_text",
+    "normalize_source_column",
+    "strip_html_fragments",
 ]

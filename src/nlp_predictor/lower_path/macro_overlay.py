@@ -73,6 +73,13 @@ class MacroOverlayAnalyzer(BaseAnalyzer):
             self.available_instruments,
         ) = load_instrument_universe(instruments_path)
 
+    @classmethod
+    def build_default(cls) -> "MacroOverlayAnalyzer":
+        """Construct a default :class:`MacroOverlayAnalyzer` using configured
+        instruments.
+        """
+        return cls(str(config.paths.input.instruments))
+
     def build(self, global_trends_df: pd.DataFrame | None) -> MacroOverlay:
         """Build a ``MacroOverlay`` from the lower-path ``global_trends_df``.
 

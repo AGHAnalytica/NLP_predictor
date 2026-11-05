@@ -36,6 +36,11 @@ class TopicExtractor(BaseAnalyzer):
 
     _DATE_COLUMNS = ("date", "scrape_date", "published_at")
 
+    @classmethod
+    def build_default(cls) -> "TopicExtractor":
+        """Construct a default :class:`TopicExtractor` instance."""
+        return cls()
+
     def process_data(self, articles_df: pd.DataFrame) -> pd.DataFrame:
         """BaseAnalyzer pipeline entry point; delegates to :meth:`extract_topics`."""
         return self.extract_topics(articles_df)

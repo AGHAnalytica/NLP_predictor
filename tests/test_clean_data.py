@@ -4,11 +4,14 @@ Tests for clean_data preprocessing utilities.
 
 from datetime import UTC, datetime
 
+import pandas as pd
+
 from nlp_predictor.preprocessing.clean_data import (
     clean_html_content,
     generate_doc_hash,
     is_valid_article,
     normalize_date_to_utc,
+    normalize_source_column,
     strip_html_fragments,
 )
 
@@ -84,3 +87,10 @@ def test_strip_html_fragments():
     assert strip_html_fragments(None) == ""
     snippet = '<p>Shares of <a href="/stock/AAPL#">Apple</a> jumped 5%.</p>'
     assert strip_html_fragments(snippet) == "Shares of Apple jumped 5%."
+
+
+def test_normalize_source_column():
+    df = pd.DataFrame([{"source": "BBC", "title": "News"}])
+    normalized = normalize_source_column(df)
+    assert "source_name" in normalized.columns
+    assert normalized.iloc[0]["source_name"] == "BBC"

@@ -11,6 +11,7 @@ from nlp_predictor.config import config
 from nlp_predictor.core.logging_config import setup_logging
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
 from nlp_predictor.lower_path.macro_overlay import MacroOverlayAnalyzer
+from nlp_predictor.preprocessing.clean_data import normalize_source_column
 from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
@@ -37,18 +38,20 @@ def main() -> None:
     if articles_df.empty:
         logger.info("No new articles scraped; running the tick on cached features.")
     else:
-        if "source" in articles_df.columns:
-            articles_df = articles_df.rename(columns={"source": "source_name"})
+        articles_df = normalize_source_column(articles_df)
         logger.info(f"Scraped {len(articles_df)} article(s).")
         articles_df.to_csv(config.paths.input.articles, index=False)
 
     store = FeatureStore()
-    upper = UpperPathAnalyzer(str(config.paths.input.instruments))
-    lower = LowerPathAnalyzer(str(config.paths.input.instruments))
+    upper = UpperPathAnalyzer.build_default()
+    lower = LowerPathAnalyzer.build_default()
 
     logger.info("====== [2/3] Ingesting new article features (Group 2 -> cache) ======")
     ingestor = FeatureIngestor(
-        store=store, extractor=TopicExtractor(), upper=upper, lower=lower
+        store=store,
+        extractor=TopicExtractor.build_default(),
+        upper=upper,
+        lower=lower,
     )
     ingestor.ingest(articles_df if not articles_df.empty else pd.DataFrame())
 
@@ -57,8 +60,8 @@ def main() -> None:
         store=store,
         upper=upper,
         lower=lower,
-        macro=MacroOverlayAnalyzer(str(config.paths.input.instruments)),
-        signal=SignalGenerator(),
+        macro=MacroOverlayAnalyzer.build_default(),
+        signal=SignalGenerator.build_default(),
         log=SignalLog(),
     )
     signals = runner.run()

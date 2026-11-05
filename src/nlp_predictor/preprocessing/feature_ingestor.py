@@ -10,6 +10,7 @@ import pandas as pd
 
 from nlp_predictor.config import config
 from nlp_predictor.lower_path.lower_path_analyzer import LowerPathAnalyzer
+from nlp_predictor.preprocessing.clean_data import normalize_source_column
 from nlp_predictor.preprocessing.feature_store import FeatureStore
 from nlp_predictor.preprocessing.topic_extractor import TopicExtractor
 from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
@@ -45,9 +46,9 @@ class FeatureIngestor:
         """Construct a production :class:`FeatureIngestor` with default dependencies."""
         return cls(
             store=FeatureStore(),
-            extractor=TopicExtractor(),
-            upper=UpperPathAnalyzer(),
-            lower=LowerPathAnalyzer(),
+            extractor=TopicExtractor.build_default(),
+            upper=UpperPathAnalyzer.build_default(),
+            lower=LowerPathAnalyzer.build_default(),
         )
 
     def ingest(self, articles_df: pd.DataFrame, now: datetime | None = None) -> int:
@@ -67,9 +68,7 @@ class FeatureIngestor:
             return 0
         now = now or datetime.now(UTC)
 
-        articles = articles_df.copy()
-        if "source_name" not in articles.columns and "source" in articles.columns:
-            articles = articles.rename(columns={"source": "source_name"})
+        articles = normalize_source_column(articles_df)
 
         known = self.store.known_doc_hashes()
         fresh = articles[~articles["doc_hash"].astype(str).isin(known)]

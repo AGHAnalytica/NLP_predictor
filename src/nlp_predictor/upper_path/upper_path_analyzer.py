@@ -56,6 +56,11 @@ class UpperPathAnalyzer(BaseAnalyzer):
         ) = load_instrument_universe(instruments_path)
         self._mapping_failures: list[str] = []
 
+    @classmethod
+    def build_default(cls) -> "UpperPathAnalyzer":
+        """Construct a default :class:`UpperPathAnalyzer` from config."""
+        return cls(str(config.paths.input.instruments))
+
     def map_topics(self, topics_df: pd.DataFrame) -> list[list[dict[str, Any]]]:
         """Map each topic row in ``topics_df`` to its impacted instruments and quantized
         sentiments concurrently.
@@ -81,13 +86,16 @@ class UpperPathAnalyzer(BaseAnalyzer):
             )
         return impacts
 
-    def process_data(self, topics_df: pd.DataFrame) -> pd.DataFrame:
+    def process_data(
+        self, topics_df: pd.DataFrame, now: datetime | None = None
+    ) -> pd.DataFrame:
         """Map topics to instruments, compute single-model severity, and generate LLM
         summaries.
 
         Args:
             topics_df: Enriched topics DataFrame with ``topic_id``, ``topic_name``,
                 ``topic_description``, ``date``, ``source_name``, and ``source_weight``.
+            now: Reference UTC timestamp for age decay and trend timestamping.
 
         Returns:
             DataFrame of per-instrument trends with columns ``trend_id``,
@@ -99,7 +107,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
         if topics_df.empty:
             return pd.DataFrame()
 
-        self.current_time = datetime.now(UTC)
+        self.current_time = now or datetime.now(UTC)
         mapped_df = self._map_and_explode(topics_df)
         if mapped_df.empty:
             return pd.DataFrame()
@@ -423,7 +431,7 @@ class UpperPathAnalyzer(BaseAnalyzer):
 
         return {
             "trend_id": str(uuid.uuid4()),
-            "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "current_time": self.current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "first_article_time": str(group["date"].min())[:19],
             "newest_article_time": str(group["date"].max())[:19],
             "instrument": instrument,

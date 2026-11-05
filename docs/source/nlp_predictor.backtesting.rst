@@ -28,6 +28,14 @@ nlp\_predictor.backtesting.data.price\_fetcher module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.backtesting.data.xfinlink\_client module
+-------------------------------------------------------
+
+.. automodule:: nlp_predictor.backtesting.data.xfinlink_client
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Module contents
 ---------------
 

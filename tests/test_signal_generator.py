@@ -4,6 +4,8 @@ function of severity ONLY. The per-instrument LLM ``direction`` field must not i
 the signal or confidence (otherwise the A/B/n across severity methods is confounded).
 """
 
+from datetime import UTC, datetime
+
 import pandas as pd
 
 from nlp_predictor.signal.signal_generator import SignalGenerator
@@ -142,3 +144,10 @@ def test_diffuse_fallback_uses_whole_climate():
     no_overlap = _gt(_cluster(["x"], 10, "down"), _cluster(["y"], 10, "down"))
     boosted = _conf(0.5, _ov("tailwind"), no_overlap)["confidence"]
     assert boosted > _conf(0.5)["confidence"]
+
+
+def test_generate_respects_injected_now_timestamp():
+    ref_time = datetime(2022, 3, 15, 14, 30, 0, tzinfo=UTC)
+    df = pd.DataFrame([_trend("AAPL", 0.5, "up")])
+    out = SignalGenerator.build_default().generate(df, None, now=ref_time)
+    assert out.iloc[0]["current_time"] == "2022-03-15 14:30:00"

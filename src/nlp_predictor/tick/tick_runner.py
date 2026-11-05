@@ -61,10 +61,10 @@ class TickRunner:
         """Construct a production :class:`TickRunner` with default dependencies."""
         return cls(
             store=FeatureStore(),
-            upper=UpperPathAnalyzer(),
-            lower=LowerPathAnalyzer(),
-            macro=MacroOverlayAnalyzer(),
-            signal=SignalGenerator(),
+            upper=UpperPathAnalyzer.build_default(),
+            lower=LowerPathAnalyzer.build_default(),
+            macro=MacroOverlayAnalyzer.build_default(),
+            signal=SignalGenerator.build_default(),
             log=SignalLog(),
         )
 
@@ -114,7 +114,9 @@ class TickRunner:
             rows = variant_trends[variant_trends["variant"] == name]
             if rows.empty:
                 continue
-            signals = self.signal.generate(rows, global_trends, overlay.effects)
+            signals = self.signal.generate(
+                rows, global_trends, overlay.effects, now=now
+            )
             if signals.empty:
                 continue
             signals = signals.copy()

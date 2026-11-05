@@ -7,7 +7,13 @@ from nlp_predictor.backtesting.data.alpaca_news import (
     AlpacaNewsFetcher,
     _format_rfc3339,
 )
-from nlp_predictor.backtesting.data.clean_news import clean_historical_news
+from nlp_predictor.backtesting.data.clean_news import (
+    clean_historical_news,
+    extract_explicit_tickers,
+    filter_historical_news,
+    is_macro_event,
+    is_spam_title,
+)
 from nlp_predictor.backtesting.data.price_fetcher import (
     YahooPriceFetcher,
     _shift_exclusive_end_date,
@@ -177,3 +183,80 @@ def test_clean_historical_news_missing_file(tmp_path):
     out_file = tmp_path / "clean.parquet"
     clean_historical_news(input_path=missing_file, output_path=out_file)
     assert not out_file.exists()
+
+
+def test_spam_and_macro_and_ticker_filters():
+    assert is_spam_title("10 Biggest Movers In Pre-Market")
+    assert is_spam_title("Earnings Scheduled For Oct 25")
+    assert not is_spam_title("Apple Reports Record Q4 iPhone Revenue")
+
+    assert is_macro_event("Federal Reserve hikes interest rates", "Full statement...")
+    assert not is_macro_event("Local Bakery Opens New Store", "Great pastries today.")
+
+    html = '<p>Watch <a href="/stock/AAPL#">Apple</a> ($MSFT) and NASDAQ:NVDA</p>'
+    assert extract_explicit_tickers(html) == {"AAPL", "MSFT", "NVDA"}
+
+
+def test_filter_historical_news_pipeline(tmp_path):
+    part_dir = tmp_path / "partitioned"
+    part_dir.mkdir(parents=True)
+    out_file = tmp_path / "filtered.parquet"
+    inst_csv = tmp_path / "instruments.csv"
+    pd.DataFrame([{"ticker": "AAPL", "full_name": "Apple Inc."}]).to_csv(
+        inst_csv, index=False
+    )
+
+    long_aapl = (
+        '<p><a href="/stock/AAPL#">Apple</a> announced major supply chain '
+        "expansions and record earnings growth across all global regions today. "
+        * 3
+        + "</p>"
+    )
+    long_spam = "<p>" + ("10 biggest movers in the market today. " * 8) + "</p>"
+    long_irrelevant = (
+        "<p>"
+        + (
+            'Shares of <a href="/stock/ZZZZ#">Unknown Corp</a> traded sideways '
+            "in quiet local trading sessions today. " * 3
+        )
+        + "</p>"
+    )
+
+    df = pd.DataFrame(
+        [
+            {
+                "doc_hash": "h1",
+                "source": "benzinga",
+                "url": "https://example.com/1",
+                "date": "2024-05-01T12:00:00Z",
+                "title": "Apple Expands Supply Chain",
+                "content": long_aapl,
+            },
+            {
+                "doc_hash": "h2",
+                "source": "benzinga",
+                "url": "https://example.com/2",
+                "date": "2024-05-01T13:00:00Z",
+                "title": "12 Stocks Moving In Tuesday's Pre-Market Session",
+                "content": long_spam,
+            },
+            {
+                "doc_hash": "h3",
+                "source": "benzinga",
+                "url": "https://example.com/3",
+                "date": "2024-05-01T14:00:00Z",
+                "title": "Unknown Corp Quiet Day",
+                "content": long_irrelevant,
+            },
+        ]
+    )
+    df.to_parquet(part_dir / "batch.parquet", index=False)
+
+    filtered = filter_historical_news(
+        input_dir=part_dir,
+        output_path=out_file,
+        instruments_path=inst_csv,
+    )
+    assert len(filtered) == 1
+    assert filtered.iloc[0]["title"] == "Apple Expands Supply Chain"
+    assert out_file.exists()

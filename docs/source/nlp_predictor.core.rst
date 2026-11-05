@@ -20,6 +20,14 @@ nlp\_predictor.core.logging\_config module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.core.parquet\_io module
+--------------------------------------
+
+.. automodule:: nlp_predictor.core.parquet_io
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 nlp\_predictor.core.severity\_models module
 -------------------------------------------
 

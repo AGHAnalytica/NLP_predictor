@@ -74,11 +74,17 @@ class SignalGenerator:
         "topic_ids",
     ]
 
+    @classmethod
+    def build_default(cls) -> "SignalGenerator":
+        """Construct a default :class:`SignalGenerator` instance."""
+        return cls()
+
     def generate(
         self,
         instrument_trends_df: pd.DataFrame,
         global_trends_df: pd.DataFrame | None = None,
         macro_overlay: dict[str, Any] | None = None,
+        now: datetime | None = None,
     ) -> pd.DataFrame:
         """Generate per-instrument signals sorted by descending confidence.
 
@@ -91,6 +97,8 @@ class SignalGenerator:
             macro_overlay: Optional per-instrument effect map from :class:`MacroOverlay`
                 (``{instrument: {'effect', 'strength', 'rationale'}}``). When provided,
                 serves as the primary macro alignment channel.
+            now: Reference UTC timestamp for ``current_time`` column (defaults to
+                ``datetime.now(UTC)``).
 
         Returns:
             DataFrame conforming to :attr:`OUTPUT_COLUMNS`, sorted by ``confidence``
@@ -101,10 +109,10 @@ class SignalGenerator:
             return pd.DataFrame(columns=self.OUTPUT_COLUMNS)
 
         macro_index = self._build_macro_index(global_trends_df)
-        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        now_str = (now or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
 
         signals = [
-            self._signal_for_instrument(row, macro_index, now, macro_overlay)
+            self._signal_for_instrument(row, macro_index, now_str, macro_overlay)
             for row in instrument_trends_df.to_dict(orient="records")
         ]
 

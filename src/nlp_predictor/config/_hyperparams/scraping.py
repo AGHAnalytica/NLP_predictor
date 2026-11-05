@@ -25,4 +25,3 @@ class ScrapingHyperparams(BaseModel):
         "https://www.cnbc.com/id/19836768/device/rss/rss.html",
         "https://www.cnbc.com/id/10000664/device/rss/rss.html",
     ]
-

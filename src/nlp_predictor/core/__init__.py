@@ -6,6 +6,12 @@ from .base_analyzer import (
     load_instrument_universe,
 )
 from .logging_config import setup_logging
+from .parquet_io import (
+    deserialize_json_cell,
+    read_raw_parquet,
+    serialize_json_cell,
+    write_raw_parquet,
+)
 from .severity_models import (
     MACRO_SEVERITY_REGISTRY,
     REQUIRED_COLUMNS,
@@ -22,6 +28,10 @@ __all__ = [
     "_is_transient_rate_limit",
     "load_instrument_universe",
     "setup_logging",
+    "serialize_json_cell",
+    "deserialize_json_cell",
+    "read_raw_parquet",
+    "write_raw_parquet",
     "SEVERITY_REGISTRY",
     "MACRO_SEVERITY_REGISTRY",
     "REQUIRED_COLUMNS",

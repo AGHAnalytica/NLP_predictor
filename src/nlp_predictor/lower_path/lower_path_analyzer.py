@@ -36,6 +36,11 @@ class LowerPathAnalyzer(BaseAnalyzer):
         super().__init__()
         self.instrument_path = instrument_path or str(config.paths.input.instruments)
 
+    @classmethod
+    def build_default(cls) -> "LowerPathAnalyzer":
+        """Construct a default :class:`LowerPathAnalyzer` instance."""
+        return cls(str(config.paths.input.instruments))
+
     def generate_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
         """Generate vector embeddings for ``texts`` in chunks of 100 via the OpenAI
         Embeddings API.
@@ -175,7 +180,7 @@ class LowerPathAnalyzer(BaseAnalyzer):
 
         return {
             "trend_id": str(uuid.uuid4()),
-            "current_time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+            "current_time": self.current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "first_article_time": str(group["date"].min())[:19],
             "newest_article_time": str(group["date"].max())[:19],
             "cluster_id": int(cluster_id),

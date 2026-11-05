@@ -7,6 +7,7 @@ import unicodedata
 from datetime import UTC, datetime
 
 import dateparser
+import pandas as pd
 import trafilatura
 
 from nlp_predictor.config import config
@@ -125,3 +126,20 @@ def generate_doc_hash(text: str) -> str:
         return ""
 
     return hashlib.sha256(standardized_text.encode("utf-8")).hexdigest()
+
+
+def normalize_source_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Standardize the publisher column name to ``source_name`` across pipelines.
+
+    Args:
+        df: Articles DataFrame that may use either ``source`` or ``source_name``.
+
+    Returns:
+        DataFrame copy guaranteed to use ``source_name`` if ``source`` was present.
+    """
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    if "source_name" not in out.columns and "source" in out.columns:
+        out = out.rename(columns={"source": "source_name"})
+    return out
