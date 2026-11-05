@@ -235,3 +235,5 @@ data/instrument_trends/
 # Sphinx documentation
 docs/_build/
 docs/build/
+data/
+*.pdf
