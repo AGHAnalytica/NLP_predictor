@@ -218,17 +218,14 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Parquet files
+# Parquet & CSV files
 *.parquet
+*.csv
 _common_metadata
 _metadata
 
 # Data & generated outputs
 data/
-!data/instruments/
-!data/scraping/
-data/scraping/*
-!data/scraping/articles_sample.csv
 
 # Prevent accidental data storage inside src
 src/**/data/
@@ -244,4 +241,3 @@ docs/build/
 # PDF documents
 *.pdf
 projekt-investments.pdf
-
