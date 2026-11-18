@@ -1,14 +1,36 @@
+# ==============================================================================
+# configs/paths.yaml — Repository Filesystem Layout & Storage Paths
+# ==============================================================================
+# Validated by: nlp_predictor.config._paths.Paths
+# Python access: from nlp_predictor.config import config; config.paths.<section>.<key>
+#
+# All relative paths below are automatically resolved against REPO_ROOT into
+# absolute `pathlib.Path` objects at import time.
+
 paths:
+  # ----------------------------------------------------------------------------
+  # 1. Input Reference Tables & Sample Datasets (InputPaths)
+  # ----------------------------------------------------------------------------
   input:
+    # Target instrument universe CSV (columns: `ticker`, `full_name`)
     instruments: "data/instruments/instruments_sample.csv"
+    # Extended instrument universe CSV for large-scale runs & historical filtering
     instruments_large: "data/instruments/instruments_sample_large.csv"
+    # Sample pre-extracted topics CSV for standalone analyzer testing
     topics: "data/topics/topics_sample_large.csv"
+    # Small sample scraped articles CSV
     articles: "data/scraping/articles_sample.csv"
+    # Large sample scraped articles CSV used by scripts/run_large_test.py
     articles_large: "data/scraping/articles_sample_large.csv"
+    # Media publisher credibility weights CSV (columns: `source_name`, `source_weight` in [0, 1])
     weights: "data/scraping/source_weights_sample.csv"
 
+  # ----------------------------------------------------------------------------
+  # 2. Analytical Outputs & Backtest Reports (OutputPaths)
+  # ----------------------------------------------------------------------------
   output:
     test_results_dir: "data/test_results"
+    # Standard single-run CSV / Parquet reports
     topics_csv: "data/test_results/topics_report.csv"
     topics_parquet: "data/test_results/topics_parquet"
     global_trends_csv: "data/test_results/global_trends_report.csv"
@@ -17,24 +39,46 @@ paths:
     instrument_trends_parquet: "data/test_results/instrument_trends_parquet"
     signals_csv: "data/test_results/signals_report.csv"
     signals_parquet: "data/test_results/signals_parquet"
+    # Large-test pipeline CSV reports (scripts/run_large_test.py)
     topics_large_csv: "data/test_results/topics_report_large.csv"
     global_trends_large_csv: "data/test_results/global_trends_report_large.csv"
     instrument_trends_large_csv: "data/test_results/instrument_trends_report_large.csv"
     signals_large_csv: "data/test_results/signals_report_large.csv"
+    # PyBroker backtester Parquet outputs (consumed by Section 3 Visualization Dashboard)
+    backtest_results_dir: "data/backtest_results"
+    backtest_metrics_parquet: "data/backtest_results/variant_metrics.parquet"
+    backtest_portfolio_parquet: "data/backtest_results/portfolio_equity.parquet"
+    backtest_trades_parquet: "data/backtest_results/trades.parquet"
+    backtest_orders_parquet: "data/backtest_results/orders.parquet"
 
+  # ----------------------------------------------------------------------------
+  # 3. Runtime & Evaluation Logs (LogsPaths)
+  # ----------------------------------------------------------------------------
   logs:
+    # Append-only A/B/n signal history written by TickRunner on every tick
     signal_log: "data/signal_log/signals_log.parquet"
+    # Daily rotating application log template (`{date}` is replaced with YYYY-MM-DD)
     log: "logs/{date}.log"
 
+  # ----------------------------------------------------------------------------
+  # 4. Rolling Parquet Caches (CachePaths)
+  # ----------------------------------------------------------------------------
   cache:
+    # Rolling FeatureStore cache keyed by `doc_hash` (stores LLM topics, embeddings & ticker mappings)
     feature_store: "data/feature_store/topic_features.parquet"
+    # Rolling scraper URL/hash deduplication cache
     scraped_history: "data/scraping/scraped_history.parquet"
 
+  # ----------------------------------------------------------------------------
+  # 5. Historical Backtesting Archives (HistoricalPaths)
+  # ----------------------------------------------------------------------------
   historical:
     news_csv: "data/historical/alpaca_news.csv"
     news_parquet: "data/historical/alpaca_news.parquet"
     news_clean: "data/historical/alpaca_news_clean.parquet"
+    # High-signal pre-filtered historical news Parquet ready for FeatureIngestor
     news_filtered: "data/historical/alpaca_news_filtered.parquet"
+    # Raw Hive-partitioned Alpaca news batches (`year=YYYY/month=MM/batch_*.parquet`)
     partitioned_dir: "data/historical/alpaca_news_partitioned"
+    # Local cache of Xfinlink point-in-time index constituents, events, fundamentals, metrics & prices
     xfinlink: "data/historical/xfinlink"
-

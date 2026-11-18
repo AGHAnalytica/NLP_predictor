@@ -177,7 +177,7 @@ NLP_predictor/
 
 ## Configuration System
 
-All paths, hyperparameters, severity variants, and backtesting settings live in `configs/*.yaml` and are validated at import time by Pydantic models in `src/nlp_predictor/config/`.
+All paths, hyperparameters, severity variants, and backtesting settings live in `configs/*.yaml` and are validated at import time by Pydantic models in `src/nlp_predictor/config/`. Every YAML file contains inline comments documenting each key, its mathematical meaning, and its allowed options.
 
 Always access configuration via typed attributes on `config`:
 ```python
@@ -196,10 +196,58 @@ min_cluster = config.hyperparams.lower_path.min_cluster_size
 # Severity variants list for A/B/n evaluation
 variants = config.severity.variants_list
 
-# Backtesting settings
+# Backtesting & PyBroker strategy settings
 start_date = config.backtesting.timeframe.start_date
 macro_etfs = config.backtesting.data.macro_tickers
+hold_bars = config.backtesting.strategy.holding_period_bars
 ```
+
+### Reference Table of Key Configurable Options
+
+#### 1. `configs/hyperparameters.yaml` (`config.hyperparams`)
+| Section & Key | Default | Allowed Values / Range | Description |
+| :--- | :--- | :--- | :--- |
+| `models.llm` | `"gpt-5-nano"` | `"gpt-5-nano"`, `"gpt-5-mini"`, `"gpt-4o-mini"`, `"gpt-4o"` | OpenAI model with Structured Outputs support for topic extraction, ticker mapping, and macro overlay. |
+| `models.embedding` | `"text-embedding-3-small"` | `"text-embedding-3-small"`, `"text-embedding-3-large"` | OpenAI embedding model used by `LowerPathAnalyzer` for HDBSCAN semantic clustering. |
+| `models.severity_model` | `"dcim"` | `"dcim"`, `"baseline"`, `"abnormal_volume"` | Default upper-path severity formula from `SEVERITY_REGISTRY` for single-variant runs. |
+| `models.max_workers` | `2` | `int >= 1` | Concurrent threads for parallel OpenAI API requests. |
+| `lower_path.macro_severity_model` | `"decayed_weighted"` | `"decayed_weighted"`, `"count"` | Formula from `MACRO_SEVERITY_REGISTRY` scoring macro cluster intensity. |
+| `lower_path.min_cluster_size` | `3` | `int >= 2` | Minimum number of topic embeddings required by HDBSCAN to form a global macro narrative. |
+| `lower_path.climate_window_hours` | `24.0` | `float > 0.0` | Rolling lookback window (in hours) of topics fed into `LowerPathAnalyzer`. |
+| `windows.signal_hours` | `16.0` | `float > 0.0` | Default lookback horizon (hours) for single-variant upper-path scoring. |
+| `windows.feature_store_max_hours` | `36.0` | `float >= max(window_hours)` | Retention horizon (hours) in `FeatureStore` before expired topic rows are pruned. |
+| `signal.neutral_threshold` | `0.15` | `0.0` to `1.0` | Minimum `abs(instrument_severity)` required to emit `UP`/`DOWN`; weaker scores become `NEUTRAL`. |
+| `signal.macro_align_bonus` | `0.25` | `float >= 0.0` | Confidence boost ($\alpha_{\text{align}}$) when macro climate agrees with micro sentiment. |
+| `signal.macro_conflict_penalty` | `0.5` | `float >= 0.0` | Confidence penalty ($\alpha_{\text{conflict}}$) when macro climate opposes micro sentiment. |
+| `signal.macro_veto` | `true` | `true`, `false` | Forces weak contrarian signals (`abs(S) < veto_strength_cap` and `conflict >= veto_coverage`) to `NEUTRAL`. |
+
+#### 2. `configs/severity.yaml` (`config.severity.variants`)
+| Key | Allowed Values / Schema | Description |
+| :--- | :--- | :--- |
+| `<variant_name>.model` | `"baseline"`, `"dcim"`, `"abnormal_volume"` | Selects the scoring formula from `SEVERITY_REGISTRY`. |
+| `<variant_name>.window_hours` | `float > 0.0` (e.g. `12.0`, `16.0`, `24.0`) | Lookback window in hours evaluated by `TickRunner`. |
+| `params.half_life_hours` | `float > 0.0` | Exponential decay half-life $\tau$ in hours ($2^{-\Delta t / \tau}$). Required by all models. |
+| `params.kappa_scale` | `float > 0.0` | Pre-$\tanh$ sensitivity multiplier $\kappa$. Required by all models. |
+| `params.beta_penalty` | `float >= 0.0` (`dcim` only) | Echo-chamber penalty $\beta$ for repeated same-sign articles from one publisher ($1 / (1 + \beta k)$). |
+| `params.gamma_consensus` | `float >= 0.0` (`dcim` only) | Cross-source agreement bonus $\gamma$ when $\ge 2$ publishers cover the stock. |
+| `params.delta_velocity` | `float >= 0.0` (`dcim` only) | Breaking-news surge multiplier $\delta$ for articles within `recent_window_hours`. |
+
+#### 3. `configs/backtesting.yaml` (`config.backtesting`)
+| Section & Key | Default | Allowed Values | Description |
+| :--- | :--- | :--- | :--- |
+| `timeframe.start_date` / `end_date` | `"2020-01-01"` / `"2025-12-31"` | `"YYYY-MM-DD"` | Synchronized date range for historical news, prices, and PyBroker simulations. |
+| `xfinlink.indices` | `["sp500", "ndx100", "djia"]` | `"sp500"`, `"ndx100"`, `"djia"` | Point-in-time indices downloaded by `XfinlinkClient`. |
+| `xfinlink.fundamentals_version` | `"original"` | `"original"`, `"restated"`, `"all"` | `"original"` uses point-in-time as-reported SEC filings (eliminates look-ahead bias). |
+| `strategy.initial_cash` | `100000.0` | `float > 0.0` | Starting portfolio capital in USD for `PyBrokerBacktester`. |
+| `strategy.fee_mode` | `"order_percent"` | `"order_percent"`, `"per_order"`, `"per_share"`, `"none"` | PyBroker transaction fee model (`0.0005` with `"order_percent"` = 5 bps per order). |
+| `strategy.position_mode` | `"default"` | `"default"`, `"long_only"`, `"short_only"` | Directional portfolio mode. |
+| `strategy.allow_short` | `false` | `true`, `false` | When `true`, `DOWN` signals open short positions; when `false`, `DOWN` signals only exit existing longs. |
+| `strategy.position_sizing` | `"confidence"` | `"confidence"`, `"equal"` | `"confidence"` scales slot weight $(1 / N_{\max})$ by signal `confidence`; `"equal"` uses fixed equal slots. |
+| `strategy.holding_period_bars` | `2` | `int >= 0` (`0` = disabled) | Automatic time-stop exit after $N$ trading days (*Slow Information Diffusion* 12–48h window). |
+| `strategy.buy_delay` / `sell_delay` | `1` / `1` | `int >= 1` | Execution delay in bars (`1` = execute on next trading session after signal generation). |
+| `strategy.enforce_point_in_time_universe` | `true` | `true`, `false` | Checks Xfinlink `(added_date, removed_date)` intervals so only active index members are traded on date $t$. |
+| `strategy.universe_index` | `"sp500"` | `"sp500"`, `"ndx100"`, `"djia"` | Which Xfinlink index history to enforce when `enforce_point_in_time_universe` is `true`. |
+| `strategy.use_adjusted_close` | `true` | `true`, `false` | Scales historical OHLC proportionally by `adj_close / close` to account for splits and dividends. |
 
 ---
 

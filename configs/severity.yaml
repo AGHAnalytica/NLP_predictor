@@ -1,23 +1,58 @@
+# ==============================================================================
+# configs/severity.yaml — A/B/n Upper-Path Severity Variants Registry
+# ==============================================================================
+# Validated by: nlp_predictor.config._severity.Severity (discriminated union by `model`)
+# Python access: from nlp_predictor.config import config; config.severity.variants_list
+#
+# Every tick in TickRunner evaluates ALL variants listed under `severity.variants`
+# simultaneously over the cached FeatureStore window (zero extra LLM calls) and logs
+# them to `data/signal_log/signals_log.parquet`.
+#
+# How to add a new variant:
+#   Add a new key (e.g. `dcim_48h_macro:`) under `variants:` with:
+#   1. `model`: Discriminator selecting the mathematical formula from SEVERITY_REGISTRY.
+#      Allowed options:
+#        - "baseline"        -> requires params: {half_life_hours, kappa_scale}
+#        - "dcim"            -> requires params: {half_life_hours, beta_penalty,
+#                               gamma_consensus, delta_velocity, kappa_scale,
+#                               recent_window_hours}
+#        - "abnormal_volume" -> requires params: {half_life_hours, kappa_scale}
+#   2. `window_hours`: Lookback window in hours (must be <= windows.feature_store_max_hours).
+#   3. `params`: Model-specific hyperparameter dictionary.
+
 severity:
   variants:
+    # --------------------------------------------------------------------------
+    # Variant 1: Control Baseline (16h window)
+    # Simple time-decayed weighted sum: tanh(kappa * sum(w_i * s_i * decay_i)).
+    # Does not penalize single-source repetition or reward multi-source consensus.
+    # --------------------------------------------------------------------------
     baseline_16h:
-      model: "baseline"
-      window_hours: 16.0
+      model: "baseline"               # Allowed: "baseline" | "dcim" | "abnormal_volume"
+      window_hours: 16.0              # Lookback horizon in hours
       params:
-        half_life_hours: 12.0
-        kappa_scale: 0.8
-        
+        half_life_hours: 12.0         # Exponential decay half-life (hours)
+        kappa_scale: 0.8              # Pre-tanh sensitivity multiplier (> 0.0)
+
+    # --------------------------------------------------------------------------
+    # Variant 2: Fast Intraday DCIM (12h window, 8h half-life)
+    # Tuned for rapid news reaction and short-horizon momentum.
+    # --------------------------------------------------------------------------
     dcim_12h_fast:
       model: "dcim"
       window_hours: 12.0
       params:
-        half_life_hours: 8.0
-        beta_penalty: 0.2
-        gamma_consensus: 0.3
-        delta_velocity: 0.3
-        kappa_scale: 0.8
-        recent_window_hours: 1.0
-        
+        half_life_hours: 8.0          # Fast decay of older articles
+        beta_penalty: 0.2             # Echo-chamber penalty for single-publisher repeats
+        gamma_consensus: 0.3          # Cross-source agreement bonus
+        delta_velocity: 0.3           # Breaking-news surge boost
+        kappa_scale: 0.8              # Higher sensitivity gain
+        recent_window_hours: 1.0      # Articles younger than 1.0h count toward velocity
+
+    # --------------------------------------------------------------------------
+    # Variant 3: Balanced Default DCIM (16h window, 12h half-life)
+    # Primary production variant balancing overnight and intraday news diffusion.
+    # --------------------------------------------------------------------------
     dcim_16h:
       model: "dcim"
       window_hours: 16.0
@@ -28,7 +63,11 @@ severity:
         delta_velocity: 0.25
         kappa_scale: 0.7
         recent_window_hours: 1.5
-        
+
+    # --------------------------------------------------------------------------
+    # Variant 4: Slow Information Diffusion DCIM (24h window, 16h half-life)
+    # Tuned for multi-day narrative accumulation on mid-cap / macro-sensitive stocks.
+    # --------------------------------------------------------------------------
     dcim_24h_slow:
       model: "dcim"
       window_hours: 24.0
@@ -39,18 +78,28 @@ severity:
         delta_velocity: 0.2
         kappa_scale: 0.6
         recent_window_hours: 2.0
-        
+
+    # --------------------------------------------------------------------------
+    # Variant 5: High-Consensus DCIM (16h window, 2x gamma_consensus)
+    # Strongly rewards narratives confirmed by multiple independent news agencies.
+    # --------------------------------------------------------------------------
     dcim_16h_consensus:
       model: "dcim"
       window_hours: 16.0
       params:
         half_life_hours: 12.0
         beta_penalty: 0.2
-        gamma_consensus: 0.6
+        gamma_consensus: 0.6          # Doubled cross-source consensus bonus
         delta_velocity: 0.2
         kappa_scale: 0.7
         recent_window_hours: 1.5
-        
+
+    # --------------------------------------------------------------------------
+    # Variant 6: Abnormal Volume / Attention Surge (16h window)
+    # Direction comes from decayed sentiment sign, while magnitude is driven purely
+    # by excess topic count above the cross-sectional instrument average:
+    # sign(net_sentiment) * tanh(kappa * max(0, N_instrument / N_mean - 1)).
+    # --------------------------------------------------------------------------
     abnvol_16h:
       model: "abnormal_volume"
       window_hours: 16.0

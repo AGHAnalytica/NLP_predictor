@@ -1,11 +1,29 @@
-backtesting:
-  timeframe:
-    start_date: "2020-01-01"
-    end_date: "2025-12-31"
+# ==============================================================================
+# configs/backtesting.yaml — Historical Data Acquisition & PyBroker Engine Config
+# ==============================================================================
+# Validated by: nlp_predictor.config._backtesting.BacktestingConfig
+# Python access: from nlp_predictor.config import config; config.backtesting.<section>.<key>
 
+backtesting:
+  # ----------------------------------------------------------------------------
+  # 1. Timeframe (TimeframeConfig)
+  # Synchronized ISO-8601 date range (YYYY-MM-DD) shared across news downloading,
+  # price fetching, pre-LLM news filtering, and PyBroker simulation defaults.
+  # ----------------------------------------------------------------------------
+  timeframe:
+    start_date: "2020-01-01"          # Earliest historical date (YYYY-MM-DD)
+    end_date: "2025-12-31"            # Latest historical date (YYYY-MM-DD, inclusive)
+
+  # ----------------------------------------------------------------------------
+  # 2. Historical Market Data & Macro ETFs (BacktestingDataConfig)
+  # Settings for YahooPriceFetcher (fallback daily OHLCV cache for ETFs/indices).
+  # ----------------------------------------------------------------------------
   data:
+    # Directory where YahooPriceFetcher stores <TICKER>_daily.parquet files
     market_prices_dir: "data/historical/market_prices"
+    # Politeness delay (in seconds) between consecutive Yahoo Finance API requests (>= 0.0)
     price_fetch_delay: 0.2
+    # Macro & sector proxy ETFs used for benchmark comparison and macro fallback universe
     macro_tickers:
       # Broad US Market
       - "SPY"
@@ -41,36 +59,108 @@ backtesting:
       - "VXX"
       - "VIXY"
 
+  # ----------------------------------------------------------------------------
+  # 3. Alpaca Historical News API (AlpacaConfig)
+  # Used by AlpacaNewsFetcher to stream historical news into Hive-partitioned Parquet.
+  # Requires ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY in .env.
+  # ----------------------------------------------------------------------------
   alpaca:
     api_url: "https://data.alpaca.markets/v1beta1/news"
-    max_articles: 1000000
-    batch_flush_size: 5000
-    page_limit: 50
-    max_retries: 5
-    request_timeout: 30
-    request_delay: 0.1
+    max_articles: 1000000             # Hard cap on total articles downloaded per run
+    batch_flush_size: 5000            # Number of articles buffered in RAM before writing a Parquet batch
+    page_limit: 50                    # Articles per REST request (Alpaca API maximum is 50)
+    max_retries: 5                    # Max retries on HTTP 429 / 5xx responses
+    request_timeout: 30               # HTTP socket timeout in seconds
+    request_delay: 0.1                # Politeness delay (seconds) between paginated calls
 
+  # ----------------------------------------------------------------------------
+  # 4. Xfinlink Point-in-Time Dataset (XfinlinkConfig)
+  # Used by XfinlinkClient & scripts/dump_xfinlink_data.py for survivorship-free
+  # index rosters, SEC as-reported fundamentals, valuation metrics, and prices.
+  # Requires XFINLINK_API_KEY in .env.
+  # ----------------------------------------------------------------------------
   xfinlink:
+    # Supported indices: "sp500" (S&P 500), "ndx100" (Nasdaq 100), "djia" (Dow Jones)
     indices:
       - "sp500"
       - "ndx100"
       - "djia"
-    start_date: "2015-01-01"
+    start_date: "2015-01-01"          # Earliest date for fundamentals, metrics, and index snapshots
+    # Frequency for index_history_<index>.parquet snapshots.
+    # Allowed options: "yearly" | "quarterly" | "monthly"
     snapshots_frequency: "yearly"
+    # SEC XBRL statement periods to dump. Allowed options: "annual", "quarterly"
     fundamentals_periods:
       - "annual"
       - "quarterly"
+    # Accounting version for SEC statements:
+    # - "original": point-in-time as-reported numbers (ZERO look-ahead bias - recommended)
+    # - "restated": includes subsequent accounting revisions
+    # - "all": downloads both original and restated rows
     fundamentals_version: "original"
+    # Pre-computed valuation multiple periods. Allowed options: "annual", "quarterly", "ttm"
     metrics_periods:
       - "annual"
       - "quarterly"
       - "ttm"
-    request_delay: 0.1
-    events_page_limit: 1000
+    request_delay: 0.1                # Politeness delay (seconds) between Xfinlink SDK calls
+    events_page_limit: 1000           # Pagination batch size for index addition/removal events
 
+  # ----------------------------------------------------------------------------
+  # 5. Pre-LLM News Filtering (NewsFilteringConfig)
+  # Used by scripts/filter_historical_news.py to strip automated scanner spam,
+  # short snippets, and irrelevant tickers before running costly LLM extraction.
+  # ----------------------------------------------------------------------------
   filtering:
-    min_article_length: 200
-    macro_lead_chars: 600
+    min_article_length: 200           # Minimum character length of cleaned article body
+    macro_lead_chars: 600             # Number of leading characters scanned for macro keywords (Fed, CPI, etc.)
+    # Filename inside data/historical/xfinlink/ used to load target universe tickers
     sp500_constituents_file: "constituents_sp500_latest.parquet"
 
-
+  # ----------------------------------------------------------------------------
+  # 6. PyBroker Strategy & Portfolio Execution (PyBrokerStrategyConfig)
+  # Used by BacktestDataLoader and PyBrokerBacktester (nlp_predictor.backtesting.engine).
+  # ----------------------------------------------------------------------------
+  strategy:
+    initial_cash: 100000.0            # Starting portfolio cash in USD (> 0.0)
+    # Commission / transaction fee model. Allowed options:
+    # - "order_percent": fee_amount is a fraction of order value (e.g. 0.0005 = 5 bps = 0.05%)
+    # - "per_order": flat fee in USD per executed order (e.g. 1.0 = $1.00 per order)
+    # - "per_share": fee in USD per traded share (e.g. 0.005 = $0.005 per share)
+    # - "none": zero transaction fees
+    fee_mode: "order_percent"
+    fee_amount: 0.0005                # Fee magnitude interpreted according to fee_mode
+    enable_fractional_shares: false   # true: allow fractional share quantities | false: integer shares only
+    # Portfolio directional constraint. Allowed options:
+    # - "default": allows both long and short positions (if allow_short is true)
+    # - "long_only": restricts portfolio strictly to long positions
+    # - "short_only": restricts portfolio strictly to short positions
+    position_mode: "default"
+    max_long_positions: 10            # Maximum concurrent open long positions (>= 1)
+    max_short_positions: 10           # Maximum concurrent open short positions when allow_short=true
+    allow_short: false                # true: DOWN signals open short positions | false: DOWN signals only close longs
+    buy_delay: 1                      # Execution lag in bars for buy/cover orders (1 = execute on next trading day)
+    sell_delay: 1                     # Execution lag in bars for sell/short orders (1 = execute on next trading day)
+    # Time-stop holding horizon in trading bars (Slow Information Diffusion: 12-48h -> 1 to 3 bars).
+    # Set to 0 to disable time-based exits and hold until an opposing signal occurs.
+    holding_period_bars: 2
+    min_confidence: 0.15              # Minimum SignalGenerator confidence in [0.0, 1.0] required to enter a trade
+    # Position sizing algorithm. Allowed options:
+    # - "confidence": scales target slot weight by signal confidence: (1 / max_positions) * confidence
+    # - "equal": allocates equal slot weight (1 / max_positions) to every qualifying signal
+    position_sizing: "confidence"
+    max_position_weight: 0.15         # Hard cap on single-instrument portfolio weight in (0.0, 1.0] (e.g. 0.15 = 15%)
+    bars_per_year: 252                # Trading days per year used by PyBroker to annualize Sharpe/Sortino (252 for equities)
+    exit_on_last_bar: true            # true: liquidate open positions on final backtest bar for realized PnL accounting
+    calc_bootstrap: false             # true: compute randomized bootstrap confidence intervals for Sharpe & Profit Factor
+    bootstrap_samples: 1000           # Number of bootstrap resamples when calc_bootstrap=true (e.g. 1000 - 10000)
+    # Survivorship-bias guard: when true, verifies via Xfinlink constituent intervals
+    # (added_date <= date <= removed_date) that the stock was in universe_index on that exact day.
+    enforce_point_in_time_universe: true
+    # Target Xfinlink index for point-in-time membership checks.
+    # Allowed options: "sp500" | "ndx100" | "djia"
+    universe_index: "sp500"
+    # true: scales historical Open/High/Low/Close by (adj_close / close) to account for splits & dividends
+    use_adjusted_close: true
+    # Default severity variant from configs/severity.yaml evaluated by run_variant() when none is specified
+    default_variant: "dcim_16h"

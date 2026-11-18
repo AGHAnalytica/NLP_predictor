@@ -3,6 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
+from nlp_predictor.backtesting import (
+    PYBROKER_PANEL_COLUMNS,
+    BacktestDataLoader,
+    PyBrokerBacktester,
+)
 from nlp_predictor.backtesting.data.alpaca_news import (
     AlpacaNewsFetcher,
     _format_rfc3339,
@@ -19,7 +24,12 @@ from nlp_predictor.backtesting.data.price_fetcher import (
     _shift_exclusive_end_date,
 )
 from nlp_predictor.config import config
-from nlp_predictor.config._backtesting import BacktestingConfig, TimeframeConfig
+from nlp_predictor.config._backtesting import (
+    BacktestingConfig,
+    PyBrokerStrategyConfig,
+    TimeframeConfig,
+)
+from nlp_predictor.signal.signal_log import SignalLog
 
 
 def test_backtesting_config_loaded():
@@ -260,3 +270,185 @@ def test_filter_historical_news_pipeline(tmp_path):
     assert len(filtered) == 1
     assert filtered.iloc[0]["title"] == "Apple Expands Supply Chain"
     assert out_file.exists()
+
+
+def _create_synthetic_backtest_fixtures(tmp_path: Path) -> tuple[Path, pd.DataFrame]:
+    """Create synthetic Xfinlink Parquet prices, PIT index history, and signals."""
+    xfl_dir = tmp_path / "xfinlink"
+    xfl_dir.mkdir(parents=True, exist_ok=True)
+
+    dates = pd.date_range("2024-01-02", periods=10, freq="B")
+    aapl_prices = pd.DataFrame(
+        {
+            "ticker": ["AAPL"] * len(dates),
+            "date": dates.strftime("%Y-%m-%d"),
+            "open": [100.0 + i * 2.0 for i in range(len(dates))],
+            "high": [102.0 + i * 2.0 for i in range(len(dates))],
+            "low": [99.0 + i * 2.0 for i in range(len(dates))],
+            "close": [101.0 + i * 2.0 for i in range(len(dates))],
+            "adj_close": [101.0 + i * 2.0 for i in range(len(dates))],
+            "volume": [1_000_000] * len(dates),
+        }
+    )
+    aapl_prices.to_parquet(xfl_dir / "prices_AAPL_daily.parquet", index=False)
+
+    msft_prices = pd.DataFrame(
+        {
+            "ticker": ["MSFT"] * len(dates),
+            "date": dates.strftime("%Y-%m-%d"),
+            "open": [200.0 - i * 2.0 for i in range(len(dates))],
+            "high": [202.0 - i * 2.0 for i in range(len(dates))],
+            "low": [198.0 - i * 2.0 for i in range(len(dates))],
+            "close": [199.0 - i * 2.0 for i in range(len(dates))],
+            "adj_close": [199.0 - i * 2.0 for i in range(len(dates))],
+            "volume": [800_000] * len(dates),
+        }
+    )
+    msft_prices.to_parquet(xfl_dir / "prices_MSFT_daily.parquet", index=False)
+
+    # AAPL is in index the whole period; MSFT was removed before 2024
+    constituents = pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "added_date": "2010-01-01",
+                "removed_date": None,
+            },
+            {
+                "ticker": "MSFT",
+                "added_date": "2010-01-01",
+                "removed_date": "2023-12-31",
+            },
+        ]
+    )
+    constituents.to_parquet(
+        xfl_dir / "constituents_sp500_latest.parquet",
+        index=False,
+    )
+
+    signals_df = pd.DataFrame(
+        [
+            {
+                "tick_id": "t1",
+                "tick_time": f"{dates[0].strftime('%Y-%m-%d')} 14:30:00",
+                "variant": "dcim_16h",
+                "instrument": "AAPL",
+                "signal": "UP",
+                "confidence": 0.85,
+                "instrument_severity": 0.75,
+                "macro_context": "AGREE",
+                "n_topics": 4,
+                "topic_ids": ["id1"],
+                "rationale": "Strong bullish consensus",
+            },
+            {
+                "tick_id": "t1",
+                "tick_time": f"{dates[0].strftime('%Y-%m-%d')} 14:30:00",
+                "variant": "dcim_16h",
+                "instrument": "MSFT",
+                "signal": "UP",
+                "confidence": 0.90,
+                "instrument_severity": 0.80,
+                "macro_context": "AGREE",
+                "n_topics": 3,
+                "topic_ids": ["id2"],
+                "rationale": "Removed from index before 2024",
+            },
+            {
+                "tick_id": "t2",
+                "tick_time": f"{dates[3].strftime('%Y-%m-%d')} 16:00:00",
+                "variant": "baseline_16h",
+                "instrument": "AAPL",
+                "signal": "UP",
+                "confidence": 0.60,
+                "instrument_severity": 0.55,
+                "macro_context": "NONE",
+                "n_topics": 2,
+                "topic_ids": ["id3"],
+                "rationale": "Baseline signal",
+            },
+        ]
+    )
+    return xfl_dir, signals_df
+
+
+def test_backtest_data_loader_pit_and_panel_assembly(tmp_path):
+    xfl_dir, signals_df = _create_synthetic_backtest_fixtures(tmp_path)
+    log_path = tmp_path / "signals_log.parquet"
+    sig_log = SignalLog(path=str(log_path))
+    sig_log.append(signals_df)
+
+    loader = BacktestDataLoader(
+        xfinlink_dir=xfl_dir,
+        market_prices_dir=tmp_path / "market_prices",
+        signal_log=sig_log,
+        universe_index="sp500",
+    )
+
+    panel = loader.build_pybroker_dataframe(
+        variant="dcim_16h",
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+        enforce_point_in_time=True,
+    )
+
+    assert list(panel.columns) == PYBROKER_PANEL_COLUMNS
+    assert set(panel["symbol"].unique()) == {"AAPL", "MSFT"}
+
+    aapl_rows = panel[panel["symbol"] == "AAPL"]
+    msft_rows = panel[panel["symbol"] == "MSFT"]
+    assert (aapl_rows["in_index"] == 1).all()
+    assert (msft_rows["in_index"] == 0).all()
+
+    first_aapl = aapl_rows.iloc[0]
+    assert first_aapl["signal_dir"] == 1
+    assert first_aapl["confidence"] == 0.85
+
+
+def test_pybroker_backtester_executes_and_respects_pit(tmp_path):
+    xfl_dir, signals_df = _create_synthetic_backtest_fixtures(tmp_path)
+    loader = BacktestDataLoader(
+        xfinlink_dir=xfl_dir,
+        market_prices_dir=tmp_path / "market_prices",
+        universe_index="sp500",
+    )
+
+    strat_cfg = PyBrokerStrategyConfig(
+        initial_cash=100_000.0,
+        fee_mode="order_percent",
+        fee_amount=0.0005,
+        max_long_positions=5,
+        holding_period_bars=2,
+        min_confidence=0.20,
+        position_sizing="confidence",
+        max_position_weight=0.25,
+        enforce_point_in_time_universe=True,
+        exit_on_last_bar=True,
+    )
+    backtester = PyBrokerBacktester(
+        data_loader=loader,
+        strategy_config=strat_cfg,
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+    )
+
+    output = backtester.run_variant("dcim_16h", signals_df=signals_df)
+
+    assert output.variant == "dcim_16h"
+    assert not output.metrics_df.empty
+    assert "total_return_pct" in output.metrics
+    assert "sharpe" in output.metrics
+    assert output.metrics["trade_count"] >= 1.0
+    assert output.metrics["end_market_value"] > 100_000.0
+
+    # MSFT was excluded by point-in-time index check; only AAPL should be traded
+    traded_symbols = set(output.orders_df["symbol"].unique())
+    assert traded_symbols == {"AAPL"}
+
+    # Multi-variant summary run
+    summary_df = backtester.run_all_variants(
+        signals_df=signals_df,
+        save_outputs=False,
+    )
+    assert len(summary_df) == 2
+    assert set(summary_df["variant"]) == {"baseline_16h", "dcim_16h"}

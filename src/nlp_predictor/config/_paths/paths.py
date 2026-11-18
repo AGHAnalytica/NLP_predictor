@@ -53,6 +53,15 @@ class OutputPaths(BaseModel):
         "data/test_results/instrument_trends_report_large.csv"
     )
     signals_large_csv: Path = Path("data/test_results/signals_report_large.csv")
+    backtest_results_dir: Path = Path("data/backtest_results")
+    backtest_metrics_parquet: Path = Path(
+        "data/backtest_results/variant_metrics.parquet"
+    )
+    backtest_portfolio_parquet: Path = Path(
+        "data/backtest_results/portfolio_equity.parquet"
+    )
+    backtest_trades_parquet: Path = Path("data/backtest_results/trades.parquet")
+    backtest_orders_parquet: Path = Path("data/backtest_results/orders.parquet")
 
     @field_validator("*", mode="before")
     @classmethod

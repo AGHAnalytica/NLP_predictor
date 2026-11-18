@@ -3,6 +3,7 @@ from .backtesting import (
     BacktestingConfig,
     BacktestingDataConfig,
     NewsFilteringConfig,
+    PyBrokerStrategyConfig,
     TimeframeConfig,
     XfinlinkConfig,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "BacktestingConfig",
     "BacktestingDataConfig",
     "NewsFilteringConfig",
+    "PyBrokerStrategyConfig",
     "TimeframeConfig",
     "XfinlinkConfig",
 ]

@@ -36,6 +36,22 @@ nlp\_predictor.backtesting.data.xfinlink\_client module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.backtesting.data\_loader module
+----------------------------------------------
+
+.. automodule:: nlp_predictor.backtesting.data_loader
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+nlp\_predictor.backtesting.engine module
+----------------------------------------
+
+.. automodule:: nlp_predictor.backtesting.engine
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Module contents
 ---------------
 

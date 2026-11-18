@@ -1,59 +1,100 @@
-hyperparams:
-  models:
-    llm: "gpt-5-nano"
-    embedding: "text-embedding-3-small"
-    embedding_batch_size: 100
-    severity_model: "dcim"
-    max_workers: 2
-    request_delay: 0.2
-    retry_attempts: 12
-    retry_min_wait: 4.0
-    retry_max_wait: 60.0
+# ==============================================================================
+# configs/hyperparameters.yaml — Core Pipeline, LLM, Dual-Path & Signal Config
+# ==============================================================================
+# Validated by: nlp_predictor.config._hyperparams.Hyperparams
+# Python access: from nlp_predictor.config import config; config.hyperparams.<section>.<key>
 
+hyperparams:
+  # ----------------------------------------------------------------------------
+  # 1. OpenAI Models, Concurrency & Retry Policy (ModelsHyperparams)
+  # Controls TopicExtractor, UpperPathAnalyzer, LowerPathAnalyzer, and MacroOverlay.
+  # ----------------------------------------------------------------------------
+  models:
+    # OpenAI chat model supporting Structured Outputs (response_format / beta.chat.completions.parse).
+    # Recommended options: "gpt-5-nano" (lowest cost / fast), "gpt-5-mini", "gpt-4o-mini", "gpt-4o"
+    llm: "gpt-5-nano"
+    # OpenAI embedding model used by LowerPathAnalyzer for HDBSCAN semantic clustering.
+    # Allowed options: "text-embedding-3-small" (1536-d, low cost), "text-embedding-3-large" (3072-d)
+    embedding: "text-embedding-3-small"
+    embedding_batch_size: 100         # Number of topic texts sent per single embeddings.create() API call (1 - 2048)
+    # Default single-run upper-path severity formula used by UpperPathAnalyzer.process_data().
+    # Allowed options (from SEVERITY_REGISTRY): "dcim" | "baseline" | "abnormal_volume"
+    severity_model: "dcim"
+    max_workers: 2                    # ThreadPoolExecutor concurrency for parallel LLM requests (increase with higher rate tier)
+    request_delay: 0.2                # Minimum delay in seconds between LLM calls per worker to prevent HTTP 429
+    retry_attempts: 12                # Tenacity max retry attempts on RateLimitError / APITimeoutError
+    retry_min_wait: 4.0               # Initial exponential-backoff wait in seconds
+    retry_max_wait: 60.0              # Maximum exponential-backoff wait cap in seconds
+
+  # ----------------------------------------------------------------------------
+  # 2. Live News Scrapers (ScrapingHyperparams)
+  # Controls APNewsScraper, BBCScraper, CNBCScraper, and BaseScraper deduplication.
+  # ----------------------------------------------------------------------------
   scraping:
-    min_article_length: 200
-    history_retention_hours: 4.0
-    fetch_delay: 0.5
-    max_concurrent: 15
-    request_timeout: 15
+    min_article_length: 200           # Minimum character length of extracted article body; shorter items are dropped
+    history_retention_hours: 4.0      # Lookback window (hours) in scraped_history.parquet for URL deduplication
+    fetch_delay: 0.5                  # Politeness delay (seconds) between synchronous HTTP requests
+    max_concurrent: 15                # Max simultaneous aiohttp connections in BaseScraper.fetch_urls_concurrently()
+    request_timeout: 15               # HTTP client timeout in seconds
     user_agent: "AGH_Analytica_scraper/1.0 (contact: agh_analytica@gmail.com)"
     apnews_base_url: "https://apnews.com"
-    apnews_hub_urls:
+    apnews_hub_urls:                  # AP News category hub pages scanned for article links
       - "https://apnews.com/hub/business"
       - "https://apnews.com/hub/climate-and-environment"
-    bbc_rss_feeds:
+    bbc_rss_feeds:                    # BBC News RSS XML feeds
       - "http://feeds.bbci.co.uk/news/business/rss.xml"
       - "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
-    cnbc_rss_feeds:
+    cnbc_rss_feeds:                   # CNBC RSS XML feeds (CNBC Pro paywalled links are filtered out automatically)
       - "https://www.cnbc.com/id/19836768/device/rss/rss.html"
       - "https://www.cnbc.com/id/10000664/device/rss/rss.html"
 
+  # ----------------------------------------------------------------------------
+  # 3. Lower Path — Macro Clustering & Climate Intensity (LowerPathHyperparams)
+  # Controls HDBSCAN semantic clustering of topic embeddings and macro cluster scoring.
+  # ----------------------------------------------------------------------------
   lower_path:
-    severity_threshold: 2
-    min_cluster_size: 3
+    severity_threshold: 2             # Minimum macro cluster intensity score required to keep a global trend (> 0)
+    min_cluster_size: 3               # HDBSCAN min_cluster_size: minimum number of topics needed to form a macro narrative (>= 2)
+    # Mathematical formula used to score macro cluster intensity.
+    # Allowed options (from MACRO_SEVERITY_REGISTRY):
+    # - "decayed_weighted": sum of source_weight * exp(-ln(2)/half_life * age_hours)
+    # - "count": raw topic count N inside the cluster
     macro_severity_model: "decayed_weighted"
-    half_life_hours: 18.0
-    climate_window_hours: 24.0
+    half_life_hours: 18.0             # Exponential decay half-life (in hours) for macro narratives (> 0.0)
+    climate_window_hours: 24.0        # Rolling lookback window (in hours) of topics fed into LowerPathAnalyzer
 
+  # ----------------------------------------------------------------------------
+  # 4. Upper Path — Default DCIM Parameters (UpperPathHyperparams)
+  # Default parameters for standalone UpperPathAnalyzer runs (multi-variant tick runs
+  # use the per-variant parameters defined in configs/severity.yaml).
+  # ----------------------------------------------------------------------------
   upper_path:
     dcim:
-      half_life_hours: 4.0
-      beta_penalty: 0.2
-      gamma_consensus: 0.3
-      delta_velocity: 0.3
-      kappa_scale: 1.0
-      recent_window_hours: 0.5
+      half_life_hours: 4.0            # Phase 1: Exponential decay half-life tau (hours). Smaller = faster decay of old news
+      beta_penalty: 0.2               # Phase 2: Echo-chamber penalty beta (>= 0.0). Penalizes repeated same-sign articles from 1 publisher: 1 / (1 + beta * k)
+      gamma_consensus: 0.3            # Phase 3: Cross-source consensus bonus gamma (>= 0.0). Rewards agreement across >= 2 publishers: 1 + gamma * (U_agree / U_total)
+      delta_velocity: 0.3             # Phase 4: Breaking-news surge multiplier delta (>= 0.0): 1 + delta * (N_recent / (N_total + 1))
+      kappa_scale: 1.0                # Phase 5: Pre-tanh sensitivity gain kappa (> 0.0): tanh(kappa * C * M_v * sum)
+      recent_window_hours: 0.5        # Phase 4: Age threshold (hours) defining "recent" breaking articles for velocity V
 
+  # ----------------------------------------------------------------------------
+  # 5. Rolling Cache & Signal Lookback Windows (WindowsHyperparams)
+  # ----------------------------------------------------------------------------
   windows:
-    signal_hours: 16.0
-    feature_store_max_hours: 36.0
+    signal_hours: 16.0                # Default lookback window (hours) for single-variant UpperPathAnalyzer scoring
+    feature_store_max_hours: 36.0     # Maximum retention window (hours) in FeatureStore before old topics are pruned
 
+  # ----------------------------------------------------------------------------
+  # 6. Signal Generator & Macro Fusion Gating (SignalHyperparams)
+  # Controls deterministic fusion of Upper Path severity S in [-1, 1] with Lower Path
+  # MacroOverlay (tailwind / headwind) into UP / DOWN / NEUTRAL trading signals.
+  # Formula: conf = clip(|S| * max(0, 1 + macro_align_bonus * c_agree - macro_conflict_penalty * c_conflict), 0, 1)
+  # ----------------------------------------------------------------------------
   signal:
-    neutral_threshold: 0.15
-    macro_align_bonus: 0.25
-    macro_conflict_penalty: 0.5
-    macro_veto: true
-    veto_coverage: 0.5
-    veto_strength_cap: 0.4
-    macro_conviction_scale: 4.0
-
+    neutral_threshold: 0.15           # Minimum |instrument_severity| in [0.0, 1.0] required to emit UP/DOWN; weaker calls become NEUTRAL
+    macro_align_bonus: 0.25           # Confidence multiplier bonus (alpha_align >= 0.0) when macro climate agrees with micro sentiment
+    macro_conflict_penalty: 0.5       # Confidence multiplier penalty (alpha_conflict >= 0.0) when macro climate opposes micro sentiment
+    macro_veto: true                  # true: force weak contrarian signals opposing strong macro trends to NEUTRAL | false: only reduce confidence
+    veto_coverage: 0.5                # Minimum effective macro conflict coverage in [0.0, 1.0] that triggers macro_veto
+    veto_strength_cap: 0.4            # Maximum |instrument_severity| in [0.0, 1.0] subject to macro_veto (strong micro news >= cap overrides veto)
+    macro_conviction_scale: 4.0       # Scaling constant (> 0.0) for global macro conviction: tanh(sum_cluster_severity / macro_conviction_scale)

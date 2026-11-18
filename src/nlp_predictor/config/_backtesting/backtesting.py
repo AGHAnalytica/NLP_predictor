@@ -74,6 +74,33 @@ class NewsFilteringConfig(BaseModel):
     sp500_constituents_file: str = "constituents_sp500_latest.parquet"
 
 
+class PyBrokerStrategyConfig(BaseModel):
+    """PyBroker execution, portfolio sizing, and point-in-time universe parameters."""
+
+    initial_cash: float = 100_000.0
+    fee_mode: str = "order_percent"
+    fee_amount: float = 0.0005
+    enable_fractional_shares: bool = False
+    position_mode: str = "default"
+    max_long_positions: int = 10
+    max_short_positions: int = 10
+    allow_short: bool = False
+    buy_delay: int = 1
+    sell_delay: int = 1
+    holding_period_bars: int = 2
+    min_confidence: float = 0.15
+    position_sizing: str = "confidence"
+    max_position_weight: float = 0.15
+    bars_per_year: int = 252
+    exit_on_last_bar: bool = True
+    calc_bootstrap: bool = False
+    bootstrap_samples: int = 1_000
+    enforce_point_in_time_universe: bool = True
+    universe_index: str = "sp500"
+    use_adjusted_close: bool = True
+    default_variant: str = "dcim_16h"
+
+
 class BacktestingConfig(BaseModel):
     """Top-level backtesting configuration combining timeframe and data settings."""
 
@@ -82,3 +109,4 @@ class BacktestingConfig(BaseModel):
     alpaca: AlpacaConfig = AlpacaConfig()
     xfinlink: XfinlinkConfig = XfinlinkConfig()
     filtering: NewsFilteringConfig = NewsFilteringConfig()
+    strategy: PyBrokerStrategyConfig = PyBrokerStrategyConfig()
