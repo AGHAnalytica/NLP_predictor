@@ -7,6 +7,7 @@ class ScrapingHyperparams(BaseModel):
     """Scraper thresholds, concurrency, HTTP headers, and feed/hub endpoints."""
 
     min_article_length: int = 200
+    feed_only_min_length: int = 40
     history_retention_hours: float = 4.0
     fetch_delay: float = 0.5
     max_concurrent: int = 15
@@ -24,4 +25,16 @@ class ScrapingHyperparams(BaseModel):
     cnbc_rss_feeds: list[str] = [
         "https://www.cnbc.com/id/19836768/device/rss/rss.html",
         "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+    ]
+    bankier_rss_feeds: list[str] = [
+        "https://www.bankier.pl/rss/wiadomosci.xml",
+        "https://www.bankier.pl/rss/gielda.xml",
+    ]
+    pap_biznes_rss_feeds: list[str] = [
+        "https://biznes.pap.pl/rss",
+    ]
+    marketwatch_rss_feeds: list[str] = [
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "https://feeds.content.dowjones.io/public/rss/mw_marketpulse",
+        "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
     ]
