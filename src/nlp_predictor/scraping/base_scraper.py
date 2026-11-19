@@ -1,6 +1,7 @@
 """Extensible base class for web, RSS, and text/API news scrapers."""
 
 import asyncio
+import html
 import logging
 import os
 import time
@@ -9,6 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 import pandas as pd
@@ -305,11 +307,18 @@ class BaseScraper(ABC):
             raw_text=content,
         )
 
+    @staticmethod
+    def strip_query_string(url: str) -> str:
+        """Strip query string from URL."""
+        stripped_url = urlsplit(url)._replace(query="")
+        return urlunsplit(stripped_url)
+
     def _run_rss_pipeline(
         self,
         rss_feeds: Sequence[str],
         source_name: str,
         skip_url: Callable[[str], bool] | None = None,
+        canonicalize_url: Callable[[str], str] | None = None,
         max_concurrent: int | None = None,
     ) -> pd.DataFrame:
         """Fetch RSS feeds, filter unseen article links, and scrape full HTML
@@ -319,6 +328,8 @@ class BaseScraper(ABC):
             rss_feeds: List of RSS XML feed URLs.
             source_name: Publisher name stored in the ``source`` column.
             skip_url: Optional predicate returning ``True`` for URLs to ignore.
+            canonicalize_url: Optional function normalizing article URLs
+                before deduplication.
             max_concurrent: Maximum concurrent article HTML downloads.
 
         Returns:
@@ -342,9 +353,12 @@ class BaseScraper(ABC):
                     if not raw_title or not article_url or not raw_date:
                         continue
 
-                    raw_title = raw_title.strip()
+                    raw_title = html.unescape(raw_title.strip())
                     article_url = article_url.strip()
                     raw_date = raw_date.strip()
+
+                    if canonicalize_url is not None:
+                        article_url = canonicalize_url(article_url)
 
                     if skip_url and skip_url(article_url):
                         logger.debug(f"Skipped filtered URL: {article_url}")

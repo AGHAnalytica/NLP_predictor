@@ -19,4 +19,5 @@ class BankierScraper(BaseScraper):
         return self._run_rss_pipeline(
             rss_feeds=self.rss_feeds,
             source_name="Bankier.pl",
+            canonicalize_url=self.strip_query_string,
         )
