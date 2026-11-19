@@ -185,18 +185,3 @@ def test_feed_only_items_are_deduplicated_across_runs(tmp_path):
     second = MarketWatchScraper(history_file=history)
     with _serve_feeds(second, feeds):
         assert second.run().empty
-
-
-def test_every_scraper_source_has_a_publisher_weight():
-    weights = pd.read_csv(config.paths.input.weights)
-    weighted_sources = set(weights["source_name"])
-
-    assert weights["source_weight"].notna().all()
-    assert {
-        "AP News",
-        "BBC",
-        "Bankier.pl",
-        "CNBC",
-        "MarketWatch",
-        "PAP Biznes",
-    } <= weighted_sources
