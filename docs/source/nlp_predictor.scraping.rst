@@ -12,6 +12,14 @@ nlp\_predictor.scraping.apnews\_scraper module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.scraping.bankier\_scraper module
+-----------------------------------------------
+
+.. automodule:: nlp_predictor.scraping.bankier_scraper
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 nlp\_predictor.scraping.base\_scraper module
 --------------------------------------------
 
@@ -32,6 +40,22 @@ nlp\_predictor.scraping.cnbc\_scraper module
 --------------------------------------------
 
 .. automodule:: nlp_predictor.scraping.cnbc_scraper
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+nlp\_predictor.scraping.marketwatch\_scraper module
+---------------------------------------------------
+
+.. automodule:: nlp_predictor.scraping.marketwatch_scraper
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+nlp\_predictor.scraping.pap\_biznes\_scraper module
+---------------------------------------------------
+
+.. automodule:: nlp_predictor.scraping.pap_biznes_scraper
    :members:
    :show-inheritance:
    :undoc-members:

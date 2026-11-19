@@ -1,6 +1,7 @@
 """Extensible base class for web, RSS, and text/API news scrapers."""
 
 import asyncio
+import html
 import logging
 import os
 import time
@@ -9,6 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 import pandas as pd
@@ -22,6 +24,7 @@ from nlp_predictor.preprocessing.clean_data import (
     is_valid_article,
     normalize_date_to_utc,
     normalize_plain_text,
+    strip_html_fragments,
 )
 
 logger = logging.getLogger(__name__)
@@ -305,12 +308,20 @@ class BaseScraper(ABC):
             raw_text=content,
         )
 
+    @staticmethod
+    def strip_query_string(url: str) -> str:
+        """Strip query string from URL."""
+        stripped_url = urlsplit(url)._replace(query="")
+        return urlunsplit(stripped_url)
+
     def _run_rss_pipeline(
         self,
         rss_feeds: Sequence[str],
         source_name: str,
         skip_url: Callable[[str], bool] | None = None,
+        canonicalize_url: Callable[[str], str] | None = None,
         max_concurrent: int | None = None,
+        fetch_full_article: bool = True,
     ) -> pd.DataFrame:
         """Fetch RSS feeds, filter unseen article links, and scrape full HTML
         concurrently.
@@ -319,7 +330,12 @@ class BaseScraper(ABC):
             rss_feeds: List of RSS XML feed URLs.
             source_name: Publisher name stored in the ``source`` column.
             skip_url: Optional predicate returning ``True`` for URLs to ignore.
+            canonicalize_url: Optional function normalizing article URLs
+                before deduplication.
             max_concurrent: Maximum concurrent article HTML downloads.
+            fetch_full_article: If ``False``, skip downloading article pages and
+                build content from the RSS title and ``description`` only (for
+                publishers whose article pages are bot-protected).
 
         Returns:
             DataFrame of newly scraped articles with :attr:`ARTICLE_COLUMNS`.
@@ -338,13 +354,17 @@ class BaseScraper(ABC):
                     raw_title = item.findtext("title")
                     article_url = item.findtext("link")
                     raw_date = item.findtext("pubDate")
+                    raw_description = item.findtext("description") or ""
 
                     if not raw_title or not article_url or not raw_date:
                         continue
 
-                    raw_title = raw_title.strip()
+                    raw_title = html.unescape(raw_title.strip())
                     article_url = article_url.strip()
                     raw_date = raw_date.strip()
+
+                    if canonicalize_url is not None:
+                        article_url = canonicalize_url(article_url)
 
                     if skip_url and skip_url(article_url):
                         logger.debug(f"Skipped filtered URL: {article_url}")
@@ -359,6 +379,7 @@ class BaseScraper(ABC):
                     pending_articles[article_url] = {
                         "title": raw_title,
                         "date": raw_date,
+                        "description": raw_description,
                     }
             except ET.ParseError as e:
                 logger.error(f"XML parsing error for {rss_url}: {e}")
@@ -367,29 +388,50 @@ class BaseScraper(ABC):
             logger.info(f"No new {source_name} articles to fetch.")
             return pd.DataFrame(columns=self.ARTICLE_COLUMNS)
 
-        urls_to_fetch = list(pending_articles.keys())
-        logger.info(
-            f"Starting concurrent fetching for {len(urls_to_fetch)} "
-            f"{source_name} URLs..."
-        )
-        html_results = asyncio.run(
-            self.fetch_urls_concurrently(urls_to_fetch, max_concurrent=max_concurrent)
-        )
-
         articles_data: list[dict[str, Any]] = []
-        for article_url, article_html in html_results:
-            if not article_html:
-                continue
-            meta = pending_articles[article_url]
-            processed = self.process_article(
-                source=source_name,
-                url=article_url,
-                raw_title=meta["title"],
-                raw_date=meta["date"],
-                raw_html=article_html,
+        if fetch_full_article:
+            urls_to_fetch = list(pending_articles.keys())
+            logger.info(
+                f"Starting concurrent fetching for {len(urls_to_fetch)} "
+                f"{source_name} URLs..."
             )
-            if processed:
-                articles_data.append(processed)
+            html_results = asyncio.run(
+                self.fetch_urls_concurrently(
+                    urls_to_fetch, max_concurrent=max_concurrent
+                )
+            )
+            for article_url, article_html in html_results:
+                if not article_html:
+                    continue
+                meta = pending_articles[article_url]
+                processed = self.process_article(
+                    source=source_name,
+                    url=article_url,
+                    raw_title=meta["title"],
+                    raw_date=meta["date"],
+                    raw_html=article_html,
+                )
+                if processed:
+                    articles_data.append(processed)
+        else:
+            for article_url, meta in pending_articles.items():
+                title = meta["title"]
+                summary = strip_html_fragments(meta["description"])
+                separator = " " if title.endswith((".", "!", "?")) else ". "
+                feed_text = (
+                    summary
+                    if summary.startswith(title)
+                    else f"{title}{separator}{summary}"
+                )
+                processed = self.process_text_item(
+                    source=source_name,
+                    url=article_url,
+                    raw_title=title,
+                    raw_date=meta["date"],
+                    raw_text=feed_text,
+                )
+                if processed:
+                    articles_data.append(processed)
 
         self.save_history()
         logger.info(

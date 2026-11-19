@@ -6,9 +6,12 @@ from collections.abc import Sequence
 import pandas as pd
 
 from nlp_predictor.scraping.apnews_scraper import APNewsScraper
+from nlp_predictor.scraping.bankier_scraper import BankierScraper
 from nlp_predictor.scraping.base_scraper import BaseScraper
 from nlp_predictor.scraping.bbc_scraper import BBCScraper
 from nlp_predictor.scraping.cnbc_scraper import CNBCScraper
+from nlp_predictor.scraping.marketwatch_scraper import MarketWatchScraper
+from nlp_predictor.scraping.pap_biznes_scraper import PapBiznesScraper
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,8 @@ def run_real_scrapers(scrapers: Sequence[BaseScraper] | None = None) -> pd.DataF
 
     Args:
         scrapers: Optional custom sequence of :class:`BaseScraper` instances (e.g., web,
-            RSS, or social media scrapers). Defaults to CNBC, AP News, and BBC scrapers.
+            RSS, or social media scrapers). Defaults to CNBC, AP News, BBC,
+            PAP Biznes, MarketWatch, and Bankier.pl scrapers.
 
     Returns:
         Combined DataFrame conforming to :attr:`BaseScraper.ARTICLE_COLUMNS`.
@@ -28,7 +32,14 @@ def run_real_scrapers(scrapers: Sequence[BaseScraper] | None = None) -> pd.DataF
     active_scrapers = (
         list(scrapers)
         if scrapers is not None
-        else [CNBCScraper(), APNewsScraper(), BBCScraper()]
+        else [
+            CNBCScraper(),
+            APNewsScraper(),
+            BBCScraper(),
+            PapBiznesScraper(),
+            MarketWatchScraper(),
+            BankierScraper(),
+        ]
     )
     collected_dfs: list[pd.DataFrame] = []
 
