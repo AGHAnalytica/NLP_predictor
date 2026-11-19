@@ -200,7 +200,7 @@ class BaseScraper(ABC):
     async def fetch_urls_concurrently(
         self, urls: Sequence[str], max_concurrent: int | None = None
     ) -> list[tuple[str, str]]:
-        """Fetch multiple URLs concurrently using ``aiohttp`` and a semaphore.
+        """Fetch URLs concurrently, honoring robots.txt and per-domain Crawl-delay.
 
         Args:
             urls: Sequence of URLs to fetch.
@@ -221,6 +221,13 @@ class BaseScraper(ABC):
         if skipped:
             logger.info(f"Skipped {skipped} URL(s) disallowed by robots.txt.")
 
+        crawl_delays: dict[str, float] = {}
+        for url in allowed_urls:
+            delay = self._get_robots_parser(url).crawl_delay(user_agent)
+            if delay:
+                crawl_delays[urlsplit(url).netloc] = float(delay)
+        domain_locks = {netloc: asyncio.Lock() for netloc in crawl_delays}
+
         limit = (
             int(max_concurrent) if max_concurrent is not None else self.max_concurrent
         )
@@ -229,7 +236,7 @@ class BaseScraper(ABC):
 
         async with aiohttp.ClientSession(headers=async_headers) as async_session:
 
-            async def fetch(url: str) -> tuple[str, str]:
+            async def download(url: str) -> tuple[str, str]:
                 async with semaphore:
                     try:
                         async with async_session.get(
@@ -248,6 +255,15 @@ class BaseScraper(ABC):
                     except Exception as e:
                         logger.error(f"Async network error while fetching {url}: {e}")
                         return url, ""
+
+            async def fetch(url: str) -> tuple[str, str]:
+                netloc = urlsplit(url).netloc
+                lock = domain_locks.get(netloc)
+                if lock is None:
+                    return await download(url)
+                async with lock:
+                    await asyncio.sleep(crawl_delays[netloc])
+                    return await download(url)
 
             tasks = [fetch(url) for url in allowed_urls]
             return await asyncio.gather(*tasks)
