@@ -229,6 +229,7 @@ data/
 !data/scraping/
 data/scraping/*
 !data/scraping/articles_sample.csv
+!data/scraping/source_weights_sample.csv
 
 # Prevent accidental data storage inside src
 src/**/data/
