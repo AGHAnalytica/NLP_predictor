@@ -75,6 +75,45 @@ def test_text_scraper_pipeline_and_deduplication(tmp_path):
     assert scraper_second.run().empty
 
 
+def test_scrapers_sharing_history_file_keep_each_others_rows(tmp_path):
+    history_path = str(tmp_path / "scraped_history.parquet")
+    post = {
+        "source": "WireAPI",
+        "title": "Headline",
+        "date": "2026-06-04T10:00:00Z",
+    }
+    # Both instances are created before either runs, as in run_real_scrapers
+    first = _DummySocialScraper(
+        history_file=history_path,
+        posts=[
+            {
+                **post,
+                "url": "https://first.example.com/1",
+                "text": "ECB keeps deposit rate unchanged at 2 percent.",
+            }
+        ],
+    )
+    second = _DummySocialScraper(
+        history_file=history_path,
+        posts=[
+            {
+                **post,
+                "url": "https://second.example.com/1",
+                "text": "OPEC+ announces deep crude oil production cuts.",
+            }
+        ],
+    )
+
+    first.run()
+    second.run()
+
+    saved_urls = set(pd.read_parquet(history_path)["url"])
+    assert saved_urls == {
+        "https://first.example.com/1",
+        "https://second.example.com/1",
+    }
+
+
 def test_run_real_scrapers_accepts_custom_scrapers(tmp_path):
     history_path = str(tmp_path / "scraped_history.parquet")
     posts = [

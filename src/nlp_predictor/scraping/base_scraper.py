@@ -149,7 +149,13 @@ class BaseScraper(ABC):
         self._new_history_rows.clear()
 
     def save_history(self) -> None:
-        """Flush buffered items and persist :attr:`history_df` to Parquet."""
+        """Reload history from disk, append buffered items and persist to Parquet.
+
+        Reloading first keeps rows written by other scrapers sharing the same
+        history file earlier in the run.
+        """
+        self.history_df = self._load_history()
+        self._cleanup_old_history()
         self._flush_history_buffer()
         try:
             parent = os.path.dirname(self.history_file)
