@@ -52,6 +52,14 @@ nlp\_predictor.backtesting.engine module
    :show-inheritance:
    :undoc-members:
 
+nlp\_predictor.backtesting.replayer module
+------------------------------------------
+
+.. automodule:: nlp_predictor.backtesting.replayer
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 Module contents
 ---------------
 

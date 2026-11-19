@@ -27,6 +27,7 @@ from .data_loader import (
     BacktestDataLoader,
 )
 from .engine import BacktestRunOutput, PyBrokerBacktester
+from .replayer import HistoricalReplayer, build_universe_instruments_csv
 
 __all__ = [
     "AlpacaNewsFetcher",
@@ -48,4 +49,6 @@ __all__ = [
     "BacktestDataLoader",
     "BacktestRunOutput",
     "PyBrokerBacktester",
+    "HistoricalReplayer",
+    "build_universe_instruments_csv",
 ]

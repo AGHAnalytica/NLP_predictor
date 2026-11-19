@@ -105,6 +105,8 @@ class HistoricalPaths(BaseModel):
     news_filtered: Path = Path("data/historical/alpaca_news_filtered.parquet")
     partitioned_dir: Path = Path("data/historical/alpaca_news_partitioned")
     xfinlink: Path = Path("data/historical/xfinlink")
+    feature_store: Path = Path("data/historical/historical_topic_features.parquet")
+    signal_log: Path = Path("data/historical/historical_signals_log.parquet")
 
     @field_validator("*", mode="before")
     @classmethod

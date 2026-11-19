@@ -55,6 +55,12 @@ class TickRunner:
             if climate_window_hours is not None
             else float(config.hyperparams.lower_path.climate_window_hours)
         )
+        variant_windows = [
+            float(v.get("window_hours", 0.0)) for v in self.variants if v
+        ]
+        self.upper_window_hours = max(
+            variant_windows or [float(config.hyperparams.windows.signal_hours)]
+        )
 
     @classmethod
     def build_default(cls) -> "TickRunner":
@@ -83,14 +89,16 @@ class TickRunner:
         tick_time = now.strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f"====== Tick {tick_id[:8]} @ {tick_time} ======")
 
-        max_lookback = max(self.store.max_window_hours, self.climate_window_hours)
+        max_lookback = max(self.upper_window_hours, self.climate_window_hours)
         full_window = self.store.window(max_lookback, now)
         if full_window.empty:
             logger.info("Tick: feature store window is empty; no signals.")
             return pd.DataFrame()
 
-        store_cutoff = now - pd.Timedelta(hours=self.store.max_window_hours)
-        window = full_window[full_window["date"] >= store_cutoff].reset_index(drop=True)
+        store_cutoff = now - pd.Timedelta(hours=self.upper_window_hours)
+        window = full_window[
+            (full_window["date"] >= store_cutoff) & (full_window["date"] <= now)
+        ].reset_index(drop=True)
         mapped = FeatureStore.to_instrument_frame(window)
         if mapped.empty:
             logger.info("Tick: feature store window has no impacts; no signals.")
@@ -102,9 +110,9 @@ class TickRunner:
             return pd.DataFrame()
 
         climate_cutoff = now - pd.Timedelta(hours=self.climate_window_hours)
-        climate_topics = full_window[full_window["date"] >= climate_cutoff].reset_index(
-            drop=True
-        )
+        climate_topics = full_window[
+            (full_window["date"] >= climate_cutoff) & (full_window["date"] <= now)
+        ].reset_index(drop=True)
         global_trends = self.lower.process_data(climate_topics, now)
         overlay = self.macro.build(global_trends)
 

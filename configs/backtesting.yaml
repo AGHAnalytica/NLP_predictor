@@ -164,3 +164,17 @@ backtesting:
     use_adjusted_close: true
     # Default severity variant from configs/severity.yaml evaluated by run_variant() when none is specified
     default_variant: "dcim_16h"
+
+  # ----------------------------------------------------------------------------
+  # 7. Historical Signal Replay (HistoricalReplayConfig)
+  # Controls batch feature ingestion (without 36h pruning) and chronological
+  # day-by-day TickRunner simulation over historical news archives.
+  # ----------------------------------------------------------------------------
+  replay:
+    ingest_batch_size: 250            # TODO!!!: Number of articles processed per LLM checkpoint batch into historical FeatureStore
+    tick_frequency: "1D"              # Pandas frequency string for simulated ticks ("1D" = daily, "B" = business days, "6h" = 4x/day)
+    decision_hour_utc: 14             # UTC hour of daily decision tick (14:00 UTC = 09:00 EST, 30 min before US market open)
+    decision_minute_utc: 0            # UTC minute of daily decision tick (0 - 59)
+    retain_window_hours: 1000000.0    # Effectively infinite FeatureStore retention (> 100 years) so historical features are never pruned
+    skip_empty_windows: true          # true: skip dates that have zero cached topics in the lookback window
+

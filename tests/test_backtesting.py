@@ -6,7 +6,9 @@ import pandas as pd
 from nlp_predictor.backtesting import (
     PYBROKER_PANEL_COLUMNS,
     BacktestDataLoader,
+    HistoricalReplayer,
     PyBrokerBacktester,
+    build_universe_instruments_csv,
 )
 from nlp_predictor.backtesting.data.alpaca_news import (
     AlpacaNewsFetcher,
@@ -26,10 +28,17 @@ from nlp_predictor.backtesting.data.price_fetcher import (
 from nlp_predictor.config import config
 from nlp_predictor.config._backtesting import (
     BacktestingConfig,
+    HistoricalReplayConfig,
     PyBrokerStrategyConfig,
     TimeframeConfig,
 )
+from nlp_predictor.lower_path.macro_overlay import MacroOverlay
+from nlp_predictor.preprocessing.feature_ingestor import FeatureIngestor
+from nlp_predictor.preprocessing.feature_store import FeatureStore
+from nlp_predictor.signal.signal_generator import SignalGenerator
 from nlp_predictor.signal.signal_log import SignalLog
+from nlp_predictor.tick.tick_runner import TickRunner
+from nlp_predictor.upper_path.upper_path_analyzer import UpperPathAnalyzer
 
 
 def test_backtesting_config_loaded():
@@ -452,3 +461,145 @@ def test_pybroker_backtester_executes_and_respects_pit(tmp_path):
     )
     assert len(summary_df) == 2
     assert set(summary_df["variant"]) == {"baseline_16h", "dcim_16h"}
+
+
+def test_historical_replayer_no_pruning_and_chronological_replay(tmp_path):
+    store_path = tmp_path / "hist_features.parquet"
+    log_path = tmp_path / "hist_signals.parquet"
+    weights_path = tmp_path / "weights.csv"
+    pd.DataFrame([{"source_name": "benzinga", "source_weight": 0.9}]).to_csv(
+        weights_path, index=False
+    )
+
+    replay_cfg = HistoricalReplayConfig(
+        ingest_batch_size=2,
+        tick_frequency="1D",
+        decision_hour_utc=14,
+        decision_minute_utc=0,
+        retain_window_hours=1_000_000.0,
+        skip_empty_windows=True,
+    )
+    store = FeatureStore(
+        path=str(store_path),
+        max_window_hours=replay_cfg.retain_window_hours,
+    )
+
+    # Fake collaborators avoiding live OpenAI API calls
+    fake_extractor = MagicMock()
+    fake_extractor.extract_topics.side_effect = lambda df: pd.DataFrame(
+        [
+            {
+                "doc_hash": row["doc_hash"],
+                "topic_id": f"tid_{row['doc_hash']}",
+                "topic_name": row["title"],
+                "topic_description": row["content"],
+                "date": row["date"],
+            }
+            for row in df.to_dict(orient="records")
+        ]
+    )
+
+    fake_lower = MagicMock()
+    fake_lower.generate_embeddings_batch.side_effect = lambda texts: [
+        [0.1, 0.2, 0.3] for _ in texts
+    ]
+    fake_lower.process_data.return_value = pd.DataFrame()
+
+    fake_upper = UpperPathAnalyzer.__new__(UpperPathAnalyzer)
+    fake_upper.map_topics = MagicMock(
+        side_effect=lambda df: [
+            [{"instrument": "AAPL", "sentiment": 1.0}] for _ in range(len(df))
+        ]
+    )
+
+    fake_macro = MagicMock()
+    fake_macro.build.return_value = MacroOverlay()
+
+    signal_log = SignalLog(path=str(log_path))
+    ingestor = FeatureIngestor(
+        store=store,
+        extractor=fake_extractor,
+        upper=fake_upper,
+        lower=fake_lower,
+        weights_path=str(weights_path),
+    )
+    tick_runner = TickRunner(
+        store=store,
+        upper=fake_upper,
+        lower=fake_lower,
+        macro=fake_macro,
+        signal=SignalGenerator.build_default(),
+        log=signal_log,
+        variants=[
+            {
+                "name": "dcim_16h",
+                "model": "dcim",
+                "window_hours": 16.0,
+                "params": {
+                    "half_life_hours": 12.0,
+                    "beta_penalty": 0.2,
+                    "gamma_consensus": 0.3,
+                    "delta_velocity": 0.25,
+                    "kappa_scale": 0.7,
+                    "recent_window_hours": 1.5,
+                },
+            }
+        ],
+    )
+    replayer = HistoricalReplayer(
+        store=store,
+        ingestor=ingestor,
+        tick_runner=tick_runner,
+        signal_log=signal_log,
+        replay_config=replay_cfg,
+    )
+
+    # Create two articles 3 years apart to verify 36h pruning preserves old articles
+    articles_df = pd.DataFrame(
+        [
+            {
+                "doc_hash": "h_2021",
+                "source": "benzinga",
+                "date": "2021-03-10T10:00:00Z",
+                "title": "Apple 2021 launch",
+                "content": "Strong 2021 hardware release.",
+            },
+            {
+                "doc_hash": "h_2024",
+                "source": "benzinga",
+                "date": "2024-03-10T10:00:00Z",
+                "title": "Apple 2024 launch",
+                "content": "Strong 2024 AI release.",
+            },
+        ]
+    )
+
+    cached_count = replayer.ingest_historical_articles(articles_df=articles_df)
+    assert cached_count == 2
+    assert len(store.load()) == 2
+
+    # Replay ticks: only dates with in-window topics should be scheduled
+    logged_signals = replayer.replay_ticks(
+        start_date="2021-03-10",
+        end_date="2021-03-12",
+    )
+    assert not logged_signals.empty
+    assert (logged_signals["instrument"] == "AAPL").all()
+    assert (logged_signals["tick_time"] == "2021-03-10 14:00:00").all()
+
+
+def test_build_universe_instruments_csv(tmp_path):
+    xfl_dir, _ = _create_synthetic_backtest_fixtures(tmp_path)
+    df = pd.read_parquet(xfl_dir / "constituents_sp500_latest.parquet")
+    df["entity_name"] = ["Apple Inc.", "Microsoft Corp."]
+    df.to_parquet(xfl_dir / "constituents_sp500_latest.parquet", index=False)
+
+    out_csv = tmp_path / "universe_instruments.csv"
+    written_path = build_universe_instruments_csv(
+        output_csv_path=out_csv,
+        xfinlink_dir=xfl_dir,
+        indices=["sp500"],
+    )
+    assert written_path.exists()
+    res = pd.read_csv(written_path)
+    assert set(res["ticker"]) == {"AAPL", "MSFT"}

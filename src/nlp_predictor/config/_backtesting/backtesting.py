@@ -101,6 +101,19 @@ class PyBrokerStrategyConfig(BaseModel):
     default_variant: str = "dcim_16h"
 
 
+class HistoricalReplayConfig(BaseModel):
+    """Parameters for batch historical feature ingestion and chronological tick
+    replay.
+    """
+
+    ingest_batch_size: int = 250
+    tick_frequency: str = "1D"
+    decision_hour_utc: int = 14
+    decision_minute_utc: int = 0
+    retain_window_hours: float = 1_000_000.0
+    skip_empty_windows: bool = True
+
+
 class BacktestingConfig(BaseModel):
     """Top-level backtesting configuration combining timeframe and data settings."""
 
@@ -110,3 +123,4 @@ class BacktestingConfig(BaseModel):
     xfinlink: XfinlinkConfig = XfinlinkConfig()
     filtering: NewsFilteringConfig = NewsFilteringConfig()
     strategy: PyBrokerStrategyConfig = PyBrokerStrategyConfig()
+    replay: HistoricalReplayConfig = HistoricalReplayConfig()

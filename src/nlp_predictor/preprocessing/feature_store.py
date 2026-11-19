@@ -99,22 +99,30 @@ class FeatureStore:
             return set()
         return set(df["doc_hash"].dropna().astype(str))
 
-    def window(self, hours: float, now: datetime | None = None) -> pd.DataFrame:
-        """Return cached topic rows whose article ``date`` is within the last ``hours``.
+    def window(
+        self,
+        hours: float,
+        now: datetime | None = None,
+        source_df: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
+        """Return cached topic rows whose article ``date`` is within ``[now - hours,
+        now]``.
 
         Args:
             hours: Lookback horizon in hours.
             now: Reference UTC timestamp (defaults to ``datetime.now(UTC)``).
+            source_df: Optional pre-loaded FeatureStore DataFrame to slice in memory.
 
         Returns:
             Filtered DataFrame with deserialized ``embedding`` and ``impacts`` columns.
         """
-        df = self.load()
+        df = source_df if source_df is not None else self.load()
         if df.empty:
             return df
         now = now or datetime.now(UTC)
         cutoff = now - pd.Timedelta(hours=float(hours))
-        return df[df["date"] >= cutoff].reset_index(drop=True)
+        mask = (df["date"] >= cutoff) & (df["date"] <= now)
+        return df[mask].reset_index(drop=True)
 
     def add(self, records: pd.DataFrame, now: datetime | None = None) -> None:
         """Append new topic rows, deduplicate by ``doc_hash``, and prune expired rows.
