@@ -185,7 +185,9 @@ def _shapley_r2(
 def measure_decomposition(n_draws: int = 4000) -> None:
     """Run Shapley R^2 variance decomposition across random instruments."""
     analyzer = _analyzer()
-    sources_df = pd.read_csv(config.paths.input.weights)
+    sources_df = pd.DataFrame(
+        list(config.sources.items()), columns=["source_name", "source_weight"]
+    )
     rows = []
     sevs = []
     for _ in range(n_draws):

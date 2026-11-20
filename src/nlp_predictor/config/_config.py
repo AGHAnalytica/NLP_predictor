@@ -1,10 +1,10 @@
 """Centralized configuration loader composing typed YAML schemas."""
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ._backtesting import BacktestingConfig
 from ._hyperparams import Hyperparams
@@ -16,14 +16,15 @@ _YAML_DIR = REPO_ROOT / "configs"
 
 
 class Config(BaseModel):
-    """Root application configuration combining paths, hyperparams, severity, and
-    backtesting.
+    """Root application configuration combining paths, hyperparams, severity,
+    backtesting, and sources.
     """
 
     paths: Paths
     hyperparams: Hyperparams
     severity: Severity
     backtesting: BacktestingConfig = BacktestingConfig()
+    sources: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = {}
 
 
 def _load_yaml_section(filename: str, section_key: str) -> dict[str, Any]:
@@ -43,6 +44,7 @@ def _load_config() -> Config:
         hyperparams=_load_yaml_section("hyperparameters.yaml", "hyperparams"),
         severity=_load_yaml_section("severity.yaml", "severity"),
         backtesting=_load_yaml_section("backtesting.yaml", "backtesting"),
+        sources=_load_yaml_section("sources.yaml", "sources"),
     )
 
 

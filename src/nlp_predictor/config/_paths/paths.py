@@ -24,7 +24,6 @@ class InputPaths(BaseModel):
     topics: Path
     articles: Path
     articles_large: Path = Path("data/scraping/articles_sample_large.csv")
-    weights: Path
 
     @field_validator("*", mode="before")
     @classmethod

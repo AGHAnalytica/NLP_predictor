@@ -70,10 +70,6 @@ def _articles(n=2, start=0):
 
 
 def _ingestor(tmp_path, store=None, extractor=None):
-    weights = tmp_path / "weights.csv"
-    pd.DataFrame([{"source_name": "Bloomberg", "source_weight": 0.9}]).to_csv(
-        weights, index=False
-    )
     store = store or FeatureStore(
         path=str(tmp_path / "fs" / "feat.parquet"), max_window_hours=36.0
     )
@@ -82,7 +78,7 @@ def _ingestor(tmp_path, store=None, extractor=None):
         extractor=extractor or _FakeExtractor(),
         upper=_FakeUpper(),
         lower=_FakeLower(),
-        weights_path=str(weights),
+        source_weights={"Bloomberg": 0.9},
     ), store
 
 
