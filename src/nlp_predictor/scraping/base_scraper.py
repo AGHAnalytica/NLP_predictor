@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+from urllib.robotparser import RobotFileParser
 
 import aiohttp
 import pandas as pd
@@ -87,6 +88,7 @@ class BaseScraper(ABC):
         )
         self._known_urls: set[str] = set(self.history_df["url"].dropna().astype(str))
         self._new_history_rows: list[dict[str, Any]] = []
+        self._robots_parsers: dict[str, RobotFileParser] = {}
 
     def _load_history(self) -> pd.DataFrame:
         """Load historical deduplication records from Parquet."""
@@ -161,16 +163,24 @@ class BaseScraper(ABC):
             logger.error(f"Error saving historical database to Parquet: {e}")
 
     def fetch_html(self, url: str) -> str | None:
-        """Fetch URL text synchronously with polite rate limiting.
+        """Fetch URL text synchronously, honoring robots.txt rules and Crawl-delay.
 
         Args:
             url: Target HTTP/HTTPS URL.
 
         Returns:
-            Response body text, or ``None`` if rate-limited/blocked or on network error.
+            Response body text, or ``None`` if disallowed by ``robots.txt``,
+            rate-limited/blocked, or on network error.
         """
-        if self.fetch_delay > 0:
-            time.sleep(self.fetch_delay)
+        user_agent = str(self.session.headers["User-Agent"])
+        parser = self._get_robots_parser(url)
+        if not parser.can_fetch(user_agent, url):
+            logger.info(f"Disallowed by robots.txt, skipping {url}")
+            return None
+
+        delay = max(parser.crawl_delay(user_agent) or 0, self.fetch_delay)
+        if delay > 0:
+            time.sleep(delay)
 
         try:
             response = self.session.get(url, timeout=self.request_timeout)
@@ -190,7 +200,7 @@ class BaseScraper(ABC):
     async def fetch_urls_concurrently(
         self, urls: Sequence[str], max_concurrent: int | None = None
     ) -> list[tuple[str, str]]:
-        """Fetch multiple URLs concurrently using ``aiohttp`` and a semaphore.
+        """Fetch URLs concurrently, honoring robots.txt and per-domain Crawl-delay.
 
         Args:
             urls: Sequence of URLs to fetch.
@@ -198,7 +208,26 @@ class BaseScraper(ABC):
 
         Returns:
             List of ``(url, response_text)`` tuples (empty string on failure).
+            URLs disallowed by ``robots.txt`` are omitted.
         """
+        user_agent = str(self.session.headers["User-Agent"])
+
+        allowed_urls = [
+            url
+            for url in urls
+            if self._get_robots_parser(url).can_fetch(user_agent, url)
+        ]
+        skipped = len(urls) - len(allowed_urls)
+        if skipped:
+            logger.info(f"Skipped {skipped} URL(s) disallowed by robots.txt.")
+
+        crawl_delays: dict[str, float] = {}
+        for url in allowed_urls:
+            delay = self._get_robots_parser(url).crawl_delay(user_agent)
+            if delay:
+                crawl_delays[urlsplit(url).netloc] = float(delay)
+        domain_locks = {netloc: asyncio.Lock() for netloc in crawl_delays}
+
         limit = (
             int(max_concurrent) if max_concurrent is not None else self.max_concurrent
         )
@@ -207,7 +236,7 @@ class BaseScraper(ABC):
 
         async with aiohttp.ClientSession(headers=async_headers) as async_session:
 
-            async def fetch(url: str) -> tuple[str, str]:
+            async def download(url: str) -> tuple[str, str]:
                 async with semaphore:
                     try:
                         async with async_session.get(
@@ -227,7 +256,16 @@ class BaseScraper(ABC):
                         logger.error(f"Async network error while fetching {url}: {e}")
                         return url, ""
 
-            tasks = [fetch(url) for url in urls]
+            async def fetch(url: str) -> tuple[str, str]:
+                netloc = urlsplit(url).netloc
+                lock = domain_locks.get(netloc)
+                if lock is None:
+                    return await download(url)
+                async with lock:
+                    await asyncio.sleep(crawl_delays[netloc])
+                    return await download(url)
+
+            tasks = [fetch(url) for url in allowed_urls]
             return await asyncio.gather(*tasks)
 
     def process_text_item(
@@ -313,6 +351,47 @@ class BaseScraper(ABC):
         """Strip query string from URL."""
         stripped_url = urlsplit(url)._replace(query="")
         return urlunsplit(stripped_url)
+
+    def _get_robots_parser(self, url: str) -> RobotFileParser:
+        """Return the cached ``robots.txt`` parser for the URL's root domain.
+
+        Follows RFC 9309: 2xx responses are parsed, 4xx means no rules (allow
+        all), 5xx or a network error disallows the whole domain.
+
+        Args:
+            url: Any URL on the target domain.
+
+        Returns:
+            Parser for ``{scheme}://{netloc}/robots.txt``.
+        """
+        parts = urlsplit(url)
+        root = f"{parts.scheme}://{parts.netloc}"
+
+        if root in self._robots_parsers:
+            return self._robots_parsers[root]
+
+        parser = RobotFileParser()
+        try:
+            response = self.session.get(
+                f"{root}/robots.txt", timeout=self.request_timeout
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Could not fetch robots.txt {root}: {e}")
+            parser.disallow_all = True
+        else:
+            if 200 <= response.status_code < 300:
+                parser.parse(response.text.splitlines())
+            elif 400 <= response.status_code < 500:
+                parser.parse([])
+            else:
+                logger.warning(
+                    f"robots.txt for {root} returned {response.status_code}; "
+                    f"disallowing all URLs."
+                )
+                parser.disallow_all = True
+
+        self._robots_parsers[root] = parser
+        return parser
 
     def _run_rss_pipeline(
         self,

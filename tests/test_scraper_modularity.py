@@ -1,8 +1,14 @@
-"""Tests for BaseScraper modularity (text/social/API vs HTML/RSS) and deduplication."""
+"""Tests for BaseScraper modularity, deduplication and robots.txt compliance."""
+
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
+import requests
 
 from nlp_predictor.scraping import BaseScraper, run_real_scrapers
+
+ROBOTS_TXT = "User-agent: *\nDisallow: /private/\nCrawl-delay: 3\n"
 
 
 class _DummySocialScraper(BaseScraper):
@@ -91,3 +97,146 @@ def test_run_real_scrapers_accepts_custom_scrapers(tmp_path):
 
     assert len(combined) == 1
     assert combined.iloc[0]["source"] == "WireAPI"
+
+
+def _scraper_with_robots(
+    tmp_path, robots_status: int = 200, robots_text: str = ROBOTS_TXT
+) -> _DummySocialScraper:
+    """Build a scraper whose session serves a canned robots.txt and page body."""
+    scraper = _DummySocialScraper(
+        history_file=str(tmp_path / "history.parquet"), posts=[]
+    )
+
+    def fake_get(url: str, timeout: int | None = None) -> MagicMock:
+        if url.endswith("/robots.txt"):
+            return MagicMock(status_code=robots_status, text=robots_text)
+        return MagicMock(status_code=200, text=f"<html>{url}</html>")
+
+    scraper.session.get = MagicMock(side_effect=fake_get)
+    return scraper
+
+
+def _requested_urls(scraper: BaseScraper) -> list[str]:
+    """Return every URL passed to the scraper's mocked ``session.get``."""
+    return [call.args[0] for call in scraper.session.get.call_args_list]
+
+
+@patch("nlp_predictor.scraping.base_scraper.time.sleep")
+def test_fetch_html_skips_disallowed_urls(mock_sleep, tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+
+    assert scraper.fetch_html("https://example.com/private/page") is None
+    assert scraper.fetch_html("https://example.com/public/page") == (
+        "<html>https://example.com/public/page</html>"
+    )
+    assert "https://example.com/private/page" not in _requested_urls(scraper)
+
+
+@patch("nlp_predictor.scraping.base_scraper.time.sleep")
+def test_robots_txt_is_fetched_once_per_domain(mock_sleep, tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+
+    scraper.fetch_html("https://example.com/a")
+    scraper.fetch_html("https://example.com/b")
+    scraper.fetch_html("https://other.com/c")
+
+    robots_requests = [
+        url for url in _requested_urls(scraper) if url.endswith("/robots.txt")
+    ]
+    assert robots_requests == [
+        "https://example.com/robots.txt",
+        "https://other.com/robots.txt",
+    ]
+
+
+def test_robots_txt_client_error_allows_all(tmp_path):
+    scraper = _scraper_with_robots(tmp_path, robots_status=403, robots_text="")
+
+    parser = scraper._get_robots_parser("https://example.com/private/page")
+
+    assert parser.can_fetch("any-agent", "https://example.com/private/page")
+
+
+def test_robots_txt_server_error_disallows_all(tmp_path):
+    scraper = _scraper_with_robots(tmp_path, robots_status=503, robots_text="")
+
+    parser = scraper._get_robots_parser("https://example.com/page")
+
+    assert not parser.can_fetch("any-agent", "https://example.com/page")
+
+
+def test_robots_txt_network_error_disallows_all(tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+    scraper.session.get = MagicMock(side_effect=requests.exceptions.ConnectionError)
+
+    parser = scraper._get_robots_parser("https://example.com/page")
+
+    assert not parser.can_fetch("any-agent", "https://example.com/page")
+
+
+@patch("nlp_predictor.scraping.base_scraper.time.sleep")
+def test_fetch_html_waits_for_crawl_delay(mock_sleep, tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+
+    scraper.fetch_html("https://example.com/public/page")
+
+    mock_sleep.assert_called_once_with(3.0)
+
+
+class _FakeAiohttpResponse:
+    """Minimal async context manager mimicking an ``aiohttp`` 200 response."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.status = 200
+
+    async def __aenter__(self) -> "_FakeAiohttpResponse":
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def text(self) -> str:
+        return f"<html>{self.url}</html>"
+
+
+class _FakeAiohttpSession:
+    """Minimal ``aiohttp.ClientSession`` replacement recording requested URLs."""
+
+    requested: list[str] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        _FakeAiohttpSession.requested = []
+
+    async def __aenter__(self) -> "_FakeAiohttpSession":
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        return None
+
+    def get(self, url: str, timeout: int | None = None) -> _FakeAiohttpResponse:
+        _FakeAiohttpSession.requested.append(url)
+        return _FakeAiohttpResponse(url)
+
+
+@patch("nlp_predictor.scraping.base_scraper.aiohttp.ClientSession", _FakeAiohttpSession)
+async def test_fetch_urls_concurrently_honors_robots_and_crawl_delay(tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+    urls = [
+        "https://example.com/private/page",
+        "https://example.com/public/1",
+        "https://example.com/public/2",
+    ]
+
+    with patch(
+        "nlp_predictor.scraping.base_scraper.asyncio.sleep", new=AsyncMock()
+    ) as mock_async_sleep:
+        results = await scraper.fetch_urls_concurrently(urls)
+
+    assert [url for url, _ in results] == urls[1:]
+    assert _FakeAiohttpSession.requested == urls[1:]
+    assert mock_async_sleep.await_count == 2
+    mock_async_sleep.assert_awaited_with(3.0)
