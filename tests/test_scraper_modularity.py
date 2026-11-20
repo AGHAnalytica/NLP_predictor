@@ -204,6 +204,22 @@ def test_robots_txt_server_error_disallows_all(tmp_path):
     assert not parser.can_fetch("any-agent", "https://example.com/page")
 
 
+def test_robots_txt_too_many_requests_disallows_all(tmp_path):
+    scraper = _scraper_with_robots(tmp_path, robots_status=429, robots_text="")
+
+    parser = scraper._get_robots_parser("https://example.com/page")
+
+    assert not parser.can_fetch("any-agent", "https://example.com/page")
+
+
+def test_robots_txt_client_error_logs_warning(tmp_path, caplog):
+    scraper = _scraper_with_robots(tmp_path, robots_status=403, robots_text="")
+
+    scraper._get_robots_parser("https://example.com/private/page")
+
+    assert "treating as no restrictions" in caplog.text
+
+
 def test_robots_txt_network_error_disallows_all(tmp_path):
     scraper = _scraper_with_robots(tmp_path)
     scraper.session.get = MagicMock(side_effect=requests.exceptions.ConnectionError)
@@ -211,6 +227,20 @@ def test_robots_txt_network_error_disallows_all(tmp_path):
     parser = scraper._get_robots_parser("https://example.com/page")
 
     assert not parser.can_fetch("any-agent", "https://example.com/page")
+
+
+@patch("nlp_predictor.scraping.base_scraper.time.sleep")
+def test_robots_txt_cache_is_case_insensitive(mock_sleep, tmp_path):
+    scraper = _scraper_with_robots(tmp_path)
+
+    scraper.fetch_html("https://Example.com/a")
+    scraper.fetch_html("https://example.com/b")
+
+    robots_requests = [
+        url for url in _requested_urls(scraper) if url.endswith("/robots.txt")
+    ]
+
+    assert len(robots_requests) == 1
 
 
 @patch("nlp_predictor.scraping.base_scraper.time.sleep")
