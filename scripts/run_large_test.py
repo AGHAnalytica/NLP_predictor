@@ -30,13 +30,9 @@ def _enrich_topics_for_upper_path(
     """Attach source_name and source_weight to extracted topics."""
     path = articles_path or str(config.paths.input.articles)
     articles_df = pd.read_csv(path)[["doc_hash", "source_name"]]
-    weights_df = pd.read_csv(config.paths.input.weights)[
-        ["source_name", "source_weight"]
-    ]
 
     enriched = topics_df.merge(articles_df, on="doc_hash", how="left")
-    enriched = enriched.merge(weights_df, on="source_name", how="left")
-    enriched["source_weight"] = enriched["source_weight"].fillna(1.0)
+    enriched["source_weight"] = enriched["source_name"].map(config.sources).fillna(1.0)
     enriched["date"] = pd.to_datetime(enriched["date"], utc=True)
     return enriched
 

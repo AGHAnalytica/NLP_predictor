@@ -5,7 +5,6 @@ paths:
     topics: "data/topics/topics_sample_large.csv"
     articles: "data/scraping/articles_sample.csv"
     articles_large: "data/scraping/articles_sample_large.csv"
-    weights: "data/scraping/source_weights_sample.csv"
 
   output:
     test_results_dir: "data/test_results"

@@ -32,14 +32,16 @@ class FeatureIngestor:
         extractor: TopicExtractor,
         upper: UpperPathAnalyzer,
         lower: LowerPathAnalyzer,
-        weights_path: str = str(config.paths.input.weights),
+        source_weights: dict[str, float] | None = None,
     ) -> None:
         """Initialize the feature ingestor with pipeline collaborators."""
         self.store = store
         self.extractor = extractor
         self.upper = upper
         self.lower = lower
-        self.weights_path = weights_path
+        self.source_weights = (
+            source_weights if source_weights is not None else dict(config.sources)
+        )
 
     @classmethod
     def build_default(cls) -> "FeatureIngestor":
@@ -103,21 +105,9 @@ class FeatureIngestor:
         """Join ``source_name`` and ``source_weight`` onto extracted topics."""
         arts = articles[["doc_hash", "source_name"]].copy()
         out = topics.merge(arts, on="doc_hash", how="left")
-        out = out.merge(self._weights(), on="source_name", how="left")
-        out["source_weight"] = out["source_weight"].fillna(1.0)
+        out["source_weight"] = out["source_name"].map(self.source_weights).fillna(1.0)
         out["date"] = pd.to_datetime(out["date"], utc=True)
         return out
-
-    def _weights(self) -> pd.DataFrame:
-        """Load publisher credibility weights CSV, or return an empty DataFrame on
-        missing
-        file.
-        """
-        try:
-            return pd.read_csv(self.weights_path)[["source_name", "source_weight"]]
-        except (FileNotFoundError, KeyError, ValueError):
-            logger.warning("Ingest: source weights unavailable; defaulting to 1.0.")
-            return pd.DataFrame(columns=["source_name", "source_weight"])
 
     def _embed(self, enriched: pd.DataFrame) -> list[list[float]]:
         """Batch-embed topics via :class:`LowerPathAnalyzer`."""
