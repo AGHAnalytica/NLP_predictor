@@ -231,8 +231,8 @@ class BaseScraper(ABC):
         for url in allowed_urls:
             delay = self._get_robots_parser(url).crawl_delay(user_agent)
             if delay:
-                crawl_delays[urlsplit(url).netloc] = float(delay)
-        domain_locks = {netloc: asyncio.Lock() for netloc in crawl_delays}
+                crawl_delays[urlsplit(url).hostname] = float(delay)
+        domain_locks = {host: asyncio.Lock() for host in crawl_delays}
 
         limit = (
             int(max_concurrent) if max_concurrent is not None else self.max_concurrent
@@ -263,12 +263,12 @@ class BaseScraper(ABC):
                         return url, ""
 
             async def fetch(url: str) -> tuple[str, str]:
-                netloc = urlsplit(url).netloc
-                lock = domain_locks.get(netloc)
+                host = urlsplit(url).hostname
+                lock = domain_locks.get(host)
                 if lock is None:
                     return await download(url)
                 async with lock:
-                    await asyncio.sleep(crawl_delays[netloc])
+                    await asyncio.sleep(crawl_delays[host])
                     return await download(url)
 
             tasks = [fetch(url) for url in allowed_urls]
@@ -362,7 +362,7 @@ class BaseScraper(ABC):
         """Return the cached ``robots.txt`` parser for the URL's root domain.
 
         Follows RFC 9309: 2xx responses are parsed, 4xx means no rules (allow
-        all), 5xx or a network error disallows the whole domain.
+        all); 429, 5xx or a network error disallows the whole domain.
 
         Args:
             url: Any URL on the target domain.
@@ -371,7 +371,7 @@ class BaseScraper(ABC):
             Parser for ``{scheme}://{netloc}/robots.txt``.
         """
         parts = urlsplit(url)
-        root = f"{parts.scheme}://{parts.netloc}"
+        root = f"{parts.scheme}://{parts.netloc.lower()}"
 
         if root in self._robots_parsers:
             return self._robots_parsers[root]
@@ -387,12 +387,16 @@ class BaseScraper(ABC):
         else:
             if 200 <= response.status_code < 300:
                 parser.parse(response.text.splitlines())
-            elif 400 <= response.status_code < 500:
+            elif 400 <= response.status_code < 500 and response.status_code != 429:
+                logger.warning(
+                    f"robots.txt for {root} returned {response.status_code};"
+                    " treating as no restrictions."
+                )
                 parser.parse([])
             else:
                 logger.warning(
                     f"robots.txt for {root} returned {response.status_code}; "
-                    f"disallowing all URLs."
+                    "disallowing all URLs."
                 )
                 parser.disallow_all = True
 
